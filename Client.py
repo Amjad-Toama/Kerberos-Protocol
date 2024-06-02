@@ -97,25 +97,31 @@ class Client:
         else:
             return True
 
-    def msg_srv_connection_request(self, ticket):
-        key = get_random_bytes(32)
-        cipher = AES.new(key, AES.MODE_CBC)
-        # TODO: Encrypt later.
-        # encrypted_version = cipher.encrypt(pad(str(VERSION).encode(), AES.block_size))
-        # encrypted_client_id = cipher.encrypt(pad(self.id.encode(), AES.block_size))
-        # encrypted_server_id = cipher.encrypt(pad("64f3f63985f04beb81a0e43321880182".encode(), AES.block_size))
-        # TODO: creation time encryption needed.
-        creation_time = datetime.now()
-        authenticator = {
-            'authenticator_iv': cipher.iv,
-            'version': VERSION,
-            'client_id': self.id,
-            'server_id': "64f3f63985f04beb81a0e43321880182",
-            'creation_time': creation_time
-        }
+    def msg_srv_connection_request(self, aes_key, ticket):
+        authenticator = self.get_encrypted_authenticator(aes_key)
         payload = {'authenticator': authenticator, 'ticket': ticket}
         request = Request(self.id, VERSION, SEND_TICKET_REQUEST_CODE, payload)
         return request.pack()
+
+    def get_encrypted_authenticator(self, aes_key):
+        iv = get_random_bytes(16)
+        cipher = AES.new(aes_key, AES.MODE_CBC, iv)
+        version_byte = VERSION.to_bytes(1, byteorder='big')
+        encrypted_version = cipher.encrypt(pad(version_byte, AES.block_size))
+        cipher = AES.new(aes_key, AES.MODE_CBC, iv)
+        encrypted_client_id = cipher.encrypt(pad(bytes.fromhex(self.id), AES.block_size))
+        cipher = AES.new(aes_key, AES.MODE_CBC, iv)
+        encrypted_server_id = cipher.encrypt(pad(bytes.fromhex("64f3f63985f04beb81a0e43321880182"), AES.block_size))
+        # TODO: Encrypt time
+        creation_time = datetime.now()
+        authenticator = {
+            'authenticator_iv': iv,
+            'version': encrypted_version,
+            'client_id': encrypted_client_id,
+            'server_id': encrypted_server_id,
+            'creation_time': creation_time
+        }
+        return authenticator
 
     @staticmethod
     def registration_request():
@@ -148,7 +154,6 @@ class Client:
 
     def symmetric_key_request(self):
         nonce = get_random_bytes(8)
-        print(f"nonce: {get_value(nonce)}")
         payload = {
             # TODO: server_id shouldn't exist in the code.
             'server_id': "64f3f63985f04beb81a0e43321880182",
@@ -259,7 +264,7 @@ def main():
 
     # Connect to the message server.
     msg_server_client = connect_to_server(message_server_endpoint)
-    packed_request = client1.msg_srv_connection_request(ticket)
+    packed_request = client1.msg_srv_connection_request(aes_key, ticket)
     msg_server_client.send(packed_request)
     # sending messages
     client1.message_request(aes_key, msg_server_client)

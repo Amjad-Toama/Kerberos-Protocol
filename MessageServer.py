@@ -38,6 +38,29 @@ class MessageServer:
     # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
     ###################################################################
 
+    @staticmethod
+    def decrypt_authenticator(aes_key, encrypted_authenticator):
+        iv = encrypted_authenticator['authenticator_iv']
+        # Decrypt version
+        cipher = AES.new(aes_key, AES.MODE_CBC, iv)
+        version = int.from_bytes(unpad(cipher.decrypt(encrypted_authenticator['version']), AES.block_size), byteorder='big')
+        # Decrypt client_id
+        cipher = AES.new(aes_key, AES.MODE_CBC, iv)
+        client_id = unpad(cipher.decrypt(encrypted_authenticator['client_id']), AES.block_size).hex()
+        # Decrypt server_id
+        cipher = AES.new(aes_key, AES.MODE_CBC, iv)
+        server_id = unpad(cipher.decrypt(encrypted_authenticator['server_id']), AES.block_size).hex()
+        # TODO: to decrypt creation_time
+        creation_time = encrypted_authenticator['creation_time']
+        authenticator = {
+            'authenticator_iv': iv,
+            'version': version,
+            'client_id': client_id,
+            'server_id': server_id,
+            'creation_time': creation_time
+        }
+        return authenticator
+
     def extract_symmetric_key(self, data):
         pass
 
@@ -78,6 +101,8 @@ def main():
         ticket = request.payload['ticket']
         cipher = AES.new(auth_msg_symmetric_key, AES.MODE_CBC, ticket['ticket_iv'])
         aes_key = cipher.decrypt(ticket['aes_key'])
+        authenticator = MessageServer.decrypt_authenticator(aes_key, request.payload['authenticator'])
+        print(authenticator) # delete
         threading.Thread(target=receiving_messages, args=(client, addr[0], aes_key)).start()
 
 

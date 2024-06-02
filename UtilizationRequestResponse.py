@@ -51,31 +51,34 @@ def unpack_ticket(packed_ticket):
     return ticket
 
 
-def pack_authenticator(authenticator):
+def pack_encrypted_authenticator(authenticator):
     packed_authenticator_iv = authenticator['authenticator_iv']
-    packed_version = struct.pack('B', authenticator['version'])
-    packed_client_id = bytes.fromhex(authenticator['client_id'])
-    packed_server_id = bytes.fromhex(authenticator['server_id'])
+    packed_version = authenticator['version']
+    packed_client_id = authenticator['client_id']
+    packed_server_id = authenticator['server_id']
+    # TODO: Will changed after encrypting the creation_time
     packed_creation_time = struct.pack('Q', int(authenticator['creation_time'].timestamp()))
     packed_authenticator = (packed_authenticator_iv + packed_version + packed_client_id + packed_server_id +
                             packed_creation_time)
+    print(len(packed_authenticator))
     return packed_authenticator
 
 
-def unpack_authenticator(packed_authenticator):
+def unpack_encrypted_authenticator(packed_authenticator):
     authenticator_iv = packed_authenticator[:16]
-    version = struct.unpack('B', packed_authenticator[16:17])[0]
-    client_id = packed_authenticator[17:33].hex()
-    server_id = packed_authenticator[33:49].hex()
-    creation_time = datetime.fromtimestamp(struct.unpack('Q', packed_authenticator[49:57])[0])
-    authenticator = {
+    version = packed_authenticator[16:32]
+    client_id = packed_authenticator[32:64]
+    server_id = packed_authenticator[64:96]
+    # TODO: Will be changed after encrypting the creation_time
+    creation_time = datetime.fromtimestamp(struct.unpack('Q', packed_authenticator[96:104])[0])
+    encrypted_authenticator = {
         'authenticator_iv': authenticator_iv,
         'version': version,
         'client_id': client_id,
         'server_id': server_id,
         'creation_time': creation_time
     }
-    return authenticator
+    return encrypted_authenticator
 
 
 def pack_message(message):
