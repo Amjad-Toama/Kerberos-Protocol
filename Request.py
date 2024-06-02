@@ -32,7 +32,7 @@ class Request:
             packed_payload = packed_name + packed_password
         elif self.request_code == SYMMETRIC_REQUEST_CODE:
             packed_server_id = bytes.fromhex(self.payload['server_id'])
-            packed_nonce = struct.pack('Q', self.payload['nonce'])
+            packed_nonce = self.payload['nonce']
             packed_payload_size = struct.pack('I', len(packed_server_id) + len(packed_nonce))
             packed_payload = packed_server_id + packed_nonce
         elif self.request_code == SEND_TICKET_REQUEST_CODE:
@@ -61,7 +61,7 @@ class Request:
             payload = {'name': name, 'password': password}
         elif request_code == SYMMETRIC_REQUEST_CODE:
             server_id = packed_request[23:39].hex()
-            nonce = struct.unpack('Q', packed_request[39:47])[0]
+            nonce = packed_request[39:47]
             payload = {'server_id': server_id, 'nonce': nonce}
         elif request_code == SEND_TICKET_REQUEST_CODE:
             packed_authenticator = packed_request[23:80]

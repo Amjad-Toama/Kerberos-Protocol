@@ -4,7 +4,7 @@ from datetime import datetime
 
 def pack_encrypted_key(encrypted_key):
     packed_encrypted_key_iv = encrypted_key['encrypted_key_iv']
-    packed_nonce = struct.pack('Q', encrypted_key['nonce'])
+    packed_nonce = encrypted_key['nonce']
     packed_aes_key = encrypted_key['aes_key']
     packed_encrypted_key = packed_encrypted_key_iv + packed_nonce + packed_aes_key
     return packed_encrypted_key
@@ -12,8 +12,8 @@ def pack_encrypted_key(encrypted_key):
 
 def unpack_encrypted_key(packed_encrypted_key):
     encrypted_key_iv = packed_encrypted_key[:16]
-    nonce = struct.unpack('Q', packed_encrypted_key[16:24])[0]
-    aes_key = packed_encrypted_key[24:56]
+    nonce = packed_encrypted_key[16:32]
+    aes_key = packed_encrypted_key[32:64]
     encrypted_key = {'encrypted_key_iv': encrypted_key_iv, 'nonce': nonce, 'aes_key': aes_key}
     return encrypted_key
 
@@ -95,4 +95,3 @@ def unpack_message(packed_message):
         'encrypted_message': encrypted_message
     }
     return message
-

@@ -2,10 +2,11 @@ import socket
 from Crypto.Random import get_random_bytes
 from Crypto.Hash import SHA256
 from datetime import datetime, timedelta
-from Crypto.Util.Padding import pad
+from Crypto.Util.Padding import pad, unpad
 from Crypto.Cipher import AES
 from Request import *
 from Response import *
+from Utilization import *
 
 ###################################################################
 # ###################### Constants Section ###################### #
@@ -145,8 +146,10 @@ class AuthenticationServer:
         client_id = request.client_id
         server_id = request.payload['server_id']
         nonce = request.payload['nonce']
+        # TODO: if the client isn't register.
         if client_id not in self.clients_dict.keys() or not server_id == self.msg_server.uuid:
             pass
+        # Generate symmetric key for client and required server.
         aes_key = get_random_bytes(KEY_LENGTH)
         encrypted_key = self.get_encrypted_key(aes_key, self.clients_dict[client_id], nonce)
         ticket = self.get_ticket(aes_key, self.msg_server, client_id)
@@ -161,15 +164,17 @@ class AuthenticationServer:
     @staticmethod
     def get_encrypted_key(aes_key, client, nonce):
         key = bytes.fromhex(client.password_hash)
+        # encrypt the aes key
         cipher = AES.new(key, AES.MODE_CBC)
         encrypted_key = cipher.encrypt(aes_key)
-        # TODO: Make use of the nonce.
-        # nonce = AuthenticationServer.nonce_verify(nonce)
-        # encrypted_nonce = cipher.encrypt(nonce)
+        # update the nonce value and encrypt it
+        cipher = AES.new(key, AES.MODE_CBC, cipher.iv)
+        nonce = nonce_update(nonce)
+        encrypted_nonce = cipher.encrypt(pad(nonce, AES.block_size))
+        cipher = AES.new(key, AES.MODE_CBC, cipher.iv)
         encrypted_key = {
             'encrypted_key_iv': cipher.iv,
-            # TODO: Change to the new nonce.
-            'nonce': nonce,
+            'nonce': encrypted_nonce,
             'aes_key': encrypted_key
         }
         return encrypted_key
@@ -200,10 +205,6 @@ class AuthenticationServer:
     # ##################### Utilization Methods ##################### #
     # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
     ###################################################################
-
-    @staticmethod
-    def nonce_verify(nonce):
-        return nonce - 1
 
     # disconnect client.
     @staticmethod

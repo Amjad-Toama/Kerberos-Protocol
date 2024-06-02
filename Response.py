@@ -34,7 +34,7 @@ class Response:
                 Client ID (16 Bytes) - client unique ID
                 Encrypted Key - encrypted AES key for the client:
                     Encrypted_Key_IV (16 Bytes)
-                    Nonce (8 Bytes)
+                    Nonce (8 Bytes) - Encrypted Nonce (16 Bytes)
                     AES Key (32 Bytes)
                 Ticket - encrypted ticket for the message servers:
                     Version (1 Bytes) - server version
@@ -66,13 +66,22 @@ class Response:
             payload = None
             payload_size = 0
         elif response_code == SEND_SYMMETRIC_KEY:
+            # TODO: to-delete after running
+            # payload_size = struct.unpack('I', packed_response[3:7])
+            # client_id = packed_response[7:23].hex()
+            # packed_encrypted_key = packed_response[23:79]
+            # packed_ticket = packed_response[79:176]
+            # encrypted_key = unpack_encrypted_key(packed_encrypted_key)
+            # ticket = unpack_ticket(packed_ticket)
+            # payload = {'client_id': client_id, 'encrypted_key': encrypted_key, 'ticket': ticket}
             payload_size = struct.unpack('I', packed_response[3:7])
             client_id = packed_response[7:23].hex()
-            packed_encrypted_key = packed_response[23:79]
-            packed_ticket = packed_response[79:176]
+            packed_encrypted_key = packed_response[23:87]
+            packed_ticket = packed_response[87:184]
             encrypted_key = unpack_encrypted_key(packed_encrypted_key)
             ticket = unpack_ticket(packed_ticket)
             payload = {'client_id': client_id, 'encrypted_key': encrypted_key, 'ticket': ticket}
+
         else:
             raise ValueError("Invalid request code.")
         return cls(version, response_code, payload)

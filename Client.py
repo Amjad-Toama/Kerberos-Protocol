@@ -10,6 +10,7 @@ from Crypto.Hash import SHA256
 
 from Request import *
 from Response import *
+from Utilization import *
 
 VERSION = 24
 MAX_NAME_LEN = 255
@@ -17,6 +18,7 @@ MAX_PASSWORD_LEN = 255
 INFO_FILENAME = "me.info"
 SERVERS_FILENAME = "srv.info"
 BUFFER_SIZE = 4096
+NONCE_RANGE = 2 ** 64 - 1
 
 
 class Server:
@@ -118,7 +120,6 @@ class Client:
     @staticmethod
     def registration_request():
         name, password = Client.get_client_info()
-        # client_id = bytes.fromhex("00000000000000000000000000000000")  # Fictive Client ID
         client_id = "00000000000000000000000000000000"  # Fictive Client ID
         payload = {'name': name, 'password': password}
         request = Request(client_id, VERSION, REGISTRATION_REQUEST_CODE, payload)
@@ -143,9 +144,13 @@ class Client:
             # TODO: Unexpected response code received.
             pass
 
+    # # # # # # # # # # # # # Symmetric Key # # # # # # # # # # # # # #
+
     def symmetric_key_request(self):
-        nonce = randint(0, 2 ** 64 - 1)
+        nonce = get_random_bytes(8)
+        print(f"nonce: {get_value(nonce)}")
         payload = {
+            # TODO: server_id shouldn't exist in the code.
             'server_id': "64f3f63985f04beb81a0e43321880182",
             'nonce': nonce
         }
@@ -158,12 +163,15 @@ class Client:
         if response.response_code == SEND_SYMMETRIC_KEY:
             encrypted_key = response.payload['encrypted_key']
             ticket = response.payload['ticket']
-            aes_key, nonce = self.decrypt_aes_key(encrypted_key)
-            # TODO: treat nonce value
+            aes_key, updated_nonce = self.decrypt_encrypted_key(encrypted_key)
+            if nonce_update(request.payload['nonce']) != updated_nonce:
+                print("Potential of Replay Attack")
             return aes_key, ticket
         else:
             # TODO: Unexpected response code received.
             return None, None
+
+    # - - - - - - - - - - - End Symmetric Key - - - - - - - - - - - - #
 
     def message_request(self, aes_key, msg_server_client):
         while True:
@@ -176,14 +184,15 @@ class Client:
             packed_request = request.pack()
             msg_server_client.send(packed_request)
 
-    def decrypt_aes_key(self, encrypted_key):
+    def decrypt_encrypted_key(self, encrypted_key):
         iv = encrypted_key['encrypted_key_iv']
-        encrypted_nonce = encrypted_key['nonce']
         encrypted_aes_key = encrypted_key['aes_key']
+        encrypted_nonce = encrypted_key['nonce']
         cipher = AES.new(bytes.fromhex(self.key), AES.MODE_CBC, iv)
-        # nonce = cipher.decrypt(encrypted_nonce)
         aes_key = cipher.decrypt(encrypted_aes_key)
-        return aes_key, encrypted_nonce
+        cipher = AES.new(bytes.fromhex(self.key), AES.MODE_CBC, iv)
+        nonce = unpad(cipher.decrypt(encrypted_nonce), AES.block_size)
+        return aes_key, nonce
 
     @staticmethod
     def nonce_verify(nonce):
