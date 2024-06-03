@@ -12,13 +12,12 @@ from Request import *
 from Response import *
 from Utilization import *
 
-VERSION = 24
 MAX_NAME_LEN = 255
 MAX_PASSWORD_LEN = 255
 INFO_FILENAME = "me.info"
 SERVERS_FILENAME = "srv.info"
 BUFFER_SIZE = 4096
-NONCE_RANGE = 2 ** 64 - 1
+SERVER_ERROR_MESSAGE = "server responded with an error"
 
 
 class Server:
@@ -112,14 +111,14 @@ class Client:
         encrypted_client_id = cipher.encrypt(pad(bytes.fromhex(self.id), AES.block_size))
         cipher = AES.new(aes_key, AES.MODE_CBC, iv)
         encrypted_server_id = cipher.encrypt(pad(bytes.fromhex("64f3f63985f04beb81a0e43321880182"), AES.block_size))
-        # TODO: Encrypt time
         creation_time = datetime.now()
+        encrypted_creation_time = encrypt_time(creation_time, aes_key, iv)
         authenticator = {
             'authenticator_iv': iv,
             'version': encrypted_version,
             'client_id': encrypted_client_id,
             'server_id': encrypted_server_id,
-            'creation_time': creation_time
+            'creation_time': encrypted_creation_time
         }
         return authenticator
 
@@ -135,12 +134,11 @@ class Client:
     def registration_response(cls, packed_response, packed_request):
         response = Response.unpack(packed_response)
         request = Request.unpack(packed_request)
+        # Registration failed
         if response.response_code == REGISTRATION_FAILED:
-            name = request.payload['name']
-            print(f"{REGISTRATION_FAILED} ERROR: The name {name} is already exists\n")
+            print(SERVER_ERROR_MESSAGE)
             return None
         elif response.response_code == REGISTRATION_SUCCEED:
-            print(f"{REGISTRATION_SUCCEED} SUCCEED.\n")
             name = request.payload['name']
             client_id = response.payload['client_id']
             client = cls(name, client_id)
@@ -198,6 +196,10 @@ class Client:
         cipher = AES.new(bytes.fromhex(self.key), AES.MODE_CBC, iv)
         nonce = unpad(cipher.decrypt(encrypted_nonce), AES.block_size)
         return aes_key, nonce
+    @staticmethod
+    def msg_server_symmetric_key_response(packed_response):
+        response = Response.unpack(packed_response)
+        return response.response_code
 
     @staticmethod
     def nonce_verify(nonce):
@@ -232,9 +234,9 @@ def connect_to_server(endpoint):
     client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         client.connect(endpoint)
+        return client
     except ConnectionRefusedError:
         print("Connection Failed.")
-    return client
 
 
 def main():
@@ -242,32 +244,48 @@ def main():
     auth_server_endpoint, message_server_endpoint = parse_servers_file(SERVERS_FILENAME)
     # Establishing connection with Authentication Server.
     auth_server_client = connect_to_server(auth_server_endpoint)
+    if auth_server_client is None:
+        print(SERVER_ERROR_MESSAGE)
+        return
     # Load client info if existed.
 
-    client1 = Client.load_client_info(INFO_FILENAME)
+    client = Client.load_client_info(INFO_FILENAME)
     # If client is new, send registration request.
-    if client1 is None:
+    if client is None:
         # Send Registration Request to Authentication Server.
         packed_request = Client.registration_request()
         auth_server_client.send(packed_request)
         packed_response = auth_server_client.recv(BUFFER_SIZE)
-        client1 = Client.registration_response(packed_response, packed_request)
+        client = Client.registration_response(packed_response, packed_request)
+        # registration error
+        if client is None:
+            return
     # Get the password from the client in order to decrypt the key.
-    password = client1.get_password()
-    client1.set_key(password)
+    password = client.get_password()
+    client.set_key(password)
     # Send symmetric key request to Authentication Server.
-    packed_request = client1.symmetric_key_request()
+    packed_request = client.symmetric_key_request()
     auth_server_client.send(packed_request)
     packed_response = auth_server_client.recv(BUFFER_SIZE)
-    aes_key, ticket = client1.symmetric_key_response(packed_response, packed_request)
+    aes_key, ticket = client.symmetric_key_response(packed_response, packed_request)
     auth_server_client.close()
 
     # Connect to the message server.
     msg_server_client = connect_to_server(message_server_endpoint)
-    packed_request = client1.msg_srv_connection_request(aes_key, ticket)
+    if msg_server_client is None:
+        print(SERVER_ERROR_MESSAGE)
+        return
+    packed_request = client.msg_srv_connection_request(aes_key, ticket)
     msg_server_client.send(packed_request)
-    # sending messages
-    client1.message_request(aes_key, msg_server_client)
+    packed_response = msg_server_client.recv(BUFFER_SIZE)
+    response_code = Client.msg_server_symmetric_key_response(packed_response)
+
+    if response_code == GENERAL_RESPONSE_ERROR:
+        print(SERVER_ERROR_MESSAGE)
+        msg_server_client.close()
+    else:
+        # sending messages
+        client.message_request(aes_key, msg_server_client)
 
 
 if __name__ == '__main__':

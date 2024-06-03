@@ -2,6 +2,7 @@ from Crypto.Cipher import AES
 from Crypto.Random import get_random_bytes
 from Crypto.Util.Padding import pad, unpad
 from datetime import datetime, timedelta
+from Utilization import *
 
 def main():
     """Start: Encryption and Decryption"""
@@ -22,29 +23,14 @@ def main():
 
 
     """Start: Encyrpting time"""
-    # datetime type
-    creation_time = datetime.now()
-    # print(creation_time)
-    # print(type(creation_time))
-    # string type
-    to_be_encrypted = str(creation_time)
-    # print(to_be_encrypted)
-    # print(type(to_be_encrypted))
-    # bytes type
-    to_be_encrypted = to_be_encrypted.encode()
-    print(to_be_encrypted)
-    # encrypting
     key = get_random_bytes(32)
-    cipher = AES.new(key, AES.MODE_CBC)
-    encrypted_time = cipher.encrypt(pad(to_be_encrypted, AES.block_size))
-    print(encrypted_time)
-
-    # decrypting
-    iv = cipher.iv
-    cipher = AES.new(key, AES.MODE_CBC, iv)
-    my_time = unpad(cipher.decrypt(encrypted_time), AES.block_size)
-    print(my_time)
-    print(my_time.decode())
+    iv = get_random_bytes(16)
+    # Sample datetime.
+    current_time = datetime.now()
+    print(current_time)
+    encrypted_ct = encrypt_time(current_time, key, iv)
+    current_time = decrypt_time(encrypted_ct, key, iv)
+    print(current_time)
     """End: Encyrpting time"""
 
 if __name__ == '__main__':

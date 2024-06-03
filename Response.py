@@ -2,6 +2,7 @@ import struct
 
 from Crypto.Random import get_random_bytes
 from UtilizationRequestResponse import *
+from Utilization import *
 
 REGISTRATION_SUCCEED = 1600
 REGISTRATION_FAILED = 1601
@@ -43,15 +44,23 @@ class Response:
                     Creation Time (8 Bytes) - timestamp; creation time of the ticket
                     Ticket IV (16 Bytes)
                     AES Key (32 Bytes)
-                    Expirations Time (8 Bytes)
+                    Expirations Time (8 Bytes) - Encrypted Time (32 Bytes)
             '''
             packed_client_id = bytes.fromhex(self.payload['client_id'])
             packed_encrypted_key = pack_encrypted_key(self.payload['encrypted_key'])
             packed_ticket = pack_ticket(self.payload['ticket'])
             packed_payload = packed_client_id + packed_encrypted_key + packed_ticket
             packed_payload_size = struct.pack('I', len(packed_payload))
+        elif self.response_code == GENERAL_RESPONSE_ERROR:
+            # Fictive Payload
+            packed_payload = get_random_bytes(16)
+            packed_payload_size = struct.pack('I', 0)
+        elif self.response_code == SYMMETRIC_KEY_RECEIVED:
+            # Fictive Payload
+            packed_payload = get_random_bytes(16)
+            packed_payload_size = struct.pack('I', 0)
         else:
-            raise ValueError("Invalid request code.")
+            raise ValueError(f"Invalid request code: {self.response_code}")
         return packed_version + packed_response_code + packed_payload_size + packed_payload
 
     @classmethod
@@ -66,22 +75,19 @@ class Response:
             payload = None
             payload_size = 0
         elif response_code == SEND_SYMMETRIC_KEY:
-            # TODO: to-delete after running
-            # payload_size = struct.unpack('I', packed_response[3:7])
-            # client_id = packed_response[7:23].hex()
-            # packed_encrypted_key = packed_response[23:79]
-            # packed_ticket = packed_response[79:176]
-            # encrypted_key = unpack_encrypted_key(packed_encrypted_key)
-            # ticket = unpack_ticket(packed_ticket)
-            # payload = {'client_id': client_id, 'encrypted_key': encrypted_key, 'ticket': ticket}
             payload_size = struct.unpack('I', packed_response[3:7])
             client_id = packed_response[7:23].hex()
             packed_encrypted_key = packed_response[23:87]
-            packed_ticket = packed_response[87:184]
+            packed_ticket = packed_response[87:208]
             encrypted_key = unpack_encrypted_key(packed_encrypted_key)
             ticket = unpack_ticket(packed_ticket)
             payload = {'client_id': client_id, 'encrypted_key': encrypted_key, 'ticket': ticket}
-
+        elif response_code == GENERAL_RESPONSE_ERROR:
+            payload = None
+            payload_size = 0
+        elif response_code == SYMMETRIC_KEY_RECEIVED:
+            payload = None
+            payload_size = 0
         else:
-            raise ValueError("Invalid request code.")
+            raise ValueError(f"Invalid request code: {response_code}")
         return cls(version, response_code, payload)

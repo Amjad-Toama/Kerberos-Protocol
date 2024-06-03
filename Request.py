@@ -64,10 +64,10 @@ class Request:
             nonce = packed_request[39:47]
             payload = {'server_id': server_id, 'nonce': nonce}
         elif request_code == SEND_TICKET_REQUEST_CODE:
-            # encrypted_authenticator length: 104
-            packed_authenticator = packed_request[23:127]
-            # ticket length: 97
-            packed_ticket = packed_request[127:224]
+            # encrypted_authenticator length: 128
+            packed_authenticator = packed_request[23:151]
+            # ticket length: 121
+            packed_ticket = packed_request[151:272]
             authenticator = unpack_encrypted_authenticator(packed_authenticator)
             ticket = unpack_ticket(packed_ticket)
             payload = {'authenticator': authenticator, 'ticket': ticket}

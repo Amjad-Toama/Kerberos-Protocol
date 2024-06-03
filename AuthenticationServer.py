@@ -8,16 +8,17 @@ from Request import *
 from Response import *
 from Utilization import *
 
-###################################################################
-# ###################### Constants Section ###################### #
-###################################################################
-# USERNAME_LENGTH: username max length (include null character)   #
-# PASSWORD_LENGTH: password max length (include null character)   #
-# ID_LENGTH      : user id max length                             #
-# KEY_LENGTH     : symmetric key max length                       #
-# IV_LENGTH      : iv length (16 is default length)               #
-# VERSION        : protocol version                               #
-###################################################################
+########################################################################
+# ######################## Constants Section ######################### #
+########################################################################
+# USERNAME_LENGTH     : username max length (include null character)   #
+# PASSWORD_LENGTH     : password max length (include null character)   #
+# ID_LENGTH           : user id max length                             #
+# KEY_LENGTH          : symmetric key max length                       #
+# IV_LENGTH           : iv length (16 is default length)               #
+# VERSION             : protocol version                               #
+# TICKET_TIME_DURATION: duration of ticket validity (in hours)         #
+########################################################################
 
 USERNAME_LENGTH = 255
 PASSWORD_LENGTH = 255
@@ -25,6 +26,7 @@ ID_LENGTH = 16
 KEY_LENGTH = 32
 IV_LENGTH = 16
 VERSION = 24
+TICKET_TIME_DURATION = 1
 
 
 class Client:
@@ -119,14 +121,14 @@ class AuthenticationServer:
 
     def registration_request(self, username, password):
         if self.username_is_exist(username):    # registration failed.
-            return self.registration_failed_response()
+            return self.registration_failed_response(), REGISTRATION_FAILED
         else:   # registration succeed.
             password_hash = AuthenticationServer.get_password_hash(password)
             client_id = self.get_new_client_id()    # get new client id
             new_client = Client(client_id, username, password_hash, datetime.now())
             self.clients_dict[client_id] = new_client    # store new client to memory.
             self.save_new_client(new_client)    # save new client details to file.
-            return self.registration_succeed_response(client_id)
+            return self.registration_succeed_response(client_id), REGISTRATION_SUCCEED
 
     @staticmethod
     def registration_failed_response():
@@ -181,22 +183,25 @@ class AuthenticationServer:
 
     @staticmethod
     def get_ticket(aes_key, msg_server, client_id):
+        # Generate Key and Initial Vector
         key = bytes.fromhex(msg_server.key)
-        cipher = AES.new(key, AES.MODE_CBC)
+        iv = get_random_bytes(IV_LENGTH)
+        cipher = AES.new(key, AES.MODE_CBC, iv)
+        # Encrypt symmetric key.
         encrypted_key = cipher.encrypt(aes_key)
+        # Time stamp
         creation_time = datetime.now()
-        expiration_time = creation_time + timedelta(hours=1)
-        # TODO: Encrypt Expiration Time
-        # encrypted_exp_time = cipher.encrypt(expiration_time)
+        # Add duration time
+        expiration_time = creation_time + timedelta(hours=TICKET_TIME_DURATION)
+        encrypted_expiration_time = encrypt_time(expiration_time, key, iv)
         ticket = {
             'version': VERSION,
             'client_id': client_id,
             'server_id': msg_server.uuid,
             'creation_time': creation_time,
-            'ticket_iv': cipher.iv,
+            'ticket_iv': iv,
             'aes_key': encrypted_key,
-            # TODO: Change to encrypted_exp_time
-            'expiration_time': expiration_time
+            'expiration_time': encrypted_expiration_time
         }
         return ticket
 
@@ -305,18 +310,20 @@ def main():
             # Client Registration
             username = request.payload['name']
             password = request.payload['password']
-            registration_response = auth_srv.registration_request(username, password)
+            registration_response, response_code = auth_srv.registration_request(username, password)
             client.send(registration_response)
             # After registration client need to sign in
-            packed_request = client.recv(1024)
-            request = Request.unpack(packed_request)
-            symmetric_key_response = auth_srv.symmetric_key_request(request)
-            client.send(symmetric_key_response)
+            if response_code == REGISTRATION_SUCCEED:
+                packed_request = client.recv(1024)
+                request = Request.unpack(packed_request)
+                symmetric_key_response = auth_srv.symmetric_key_request(request)
+                client.send(symmetric_key_response)
         elif request_code == SYMMETRIC_REQUEST_CODE:
             symmetric_key_response = auth_srv.symmetric_key_request(request)
             client.send(symmetric_key_response)
         else:
             raise ValueError("Invalid request code.")
+        client.close()
 
 
 if __name__ == "__main__":

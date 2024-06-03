@@ -1,7 +1,10 @@
 import socket
 import threading
 import time
+from datetime import timedelta
+
 from Request import *
+from Response import *
 from Utilization import *
 
 from Crypto.Cipher import AES
@@ -38,6 +41,29 @@ class MessageServer:
     # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
     ###################################################################
 
+    def symmetric_key_request(self, packed_request):
+        # unpack the request
+        request = Request.unpack(packed_request)
+        payload = request.payload
+        ticket = payload['ticket']
+        # Extract the aes_key and decrypt it
+        ticket_iv = ticket['ticket_iv']
+        key = bytes.fromhex(self.symmetric_key)
+        cipher = AES.new(key, AES.MODE_CBC, ticket_iv)
+        # TODO: unpad after adding the padding in the AS class.
+        aes_key = cipher.decrypt(ticket['aes_key'])
+        expiration_time = decrypt_time(ticket['expiration_time'], key, ticket_iv)
+        # update ticket keys with decrypted values
+        ticket['aes_key'] = aes_key
+        ticket['expiration_time'] = expiration_time
+        # Decrypt authenticator values
+        authenticator = MessageServer.decrypt_authenticator(aes_key, payload['authenticator'])
+        if expiration_time <= datetime.now():
+            packed_response = Response(VERSION, GENERAL_RESPONSE_ERROR, None).pack()
+            return None, None, packed_response, GENERAL_RESPONSE_ERROR
+        packed_response = Response(VERSION, SYMMETRIC_KEY_RECEIVED, None).pack()
+        return ticket, authenticator, packed_response, SYMMETRIC_KEY_RECEIVED
+
     @staticmethod
     def decrypt_authenticator(aes_key, encrypted_authenticator):
         iv = encrypted_authenticator['authenticator_iv']
@@ -50,8 +76,8 @@ class MessageServer:
         # Decrypt server_id
         cipher = AES.new(aes_key, AES.MODE_CBC, iv)
         server_id = unpad(cipher.decrypt(encrypted_authenticator['server_id']), AES.block_size).hex()
-        # TODO: to decrypt creation_time
-        creation_time = encrypted_authenticator['creation_time']
+        encrypted_creation_time = encrypted_authenticator['creation_time']
+        creation_time = decrypt_time(encrypted_creation_time, aes_key, iv)
         authenticator = {
             'authenticator_iv': iv,
             'version': version,
@@ -90,20 +116,18 @@ def main():
     msg_srv = MessageServer()
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.bind((msg_srv.server_ip, msg_srv.server_port))
-    auth_msg_symmetric_key = bytes.fromhex(get_symmetric_key("msg.info"))
     while True:
         server.listen()
         client, addr = server.accept()
-        client.send("Connection Established".encode())
-        # Receive request
+        # Receive request SEND_TICKET_REQUEST
         packed_request = client.recv(1024)
-        request = Request.unpack(packed_request)
-        ticket = request.payload['ticket']
-        cipher = AES.new(auth_msg_symmetric_key, AES.MODE_CBC, ticket['ticket_iv'])
-        aes_key = cipher.decrypt(ticket['aes_key'])
-        authenticator = MessageServer.decrypt_authenticator(aes_key, request.payload['authenticator'])
-        print(authenticator) # delete
-        threading.Thread(target=receiving_messages, args=(client, addr[0], aes_key)).start()
+        ticket, authenticator, packed_response, response_code = msg_srv.symmetric_key_request(packed_request)
+        client.send(packed_response)
+        if response_code == GENERAL_RESPONSE_ERROR:
+            client.close()
+        else:
+            # response_code == SYMMETRIC_KEY_RECEIVED
+            threading.Thread(target=receiving_messages, args=(client, addr[0], ticket['aes_key'])).start()
 
 
 if __name__ == '__main__':
