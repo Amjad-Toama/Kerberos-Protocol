@@ -36,14 +36,14 @@ class Response:
                 Encrypted Key - encrypted AES key for the client:
                     Encrypted_Key_IV (16 Bytes)
                     Nonce (8 Bytes) - Encrypted Nonce (16 Bytes)
-                    AES Key (32 Bytes)
+                    AES Key (32 Bytes) - Padded (48 Bytes)
                 Ticket - encrypted ticket for the message servers:
                     Version (1 Bytes) - server version
                     Client_ID (16 Bytes) - client unique ID
                     Server_ID (16 Bytes) - server unique ID
                     Creation Time (8 Bytes) - timestamp; creation time of the ticket
                     Ticket IV (16 Bytes)
-                    AES Key (32 Bytes)
+                    AES Key (32 Bytes) - Padded (48 Bytes)
                     Expirations Time (8 Bytes) - Encrypted Time (32 Bytes)
             '''
             packed_client_id = bytes.fromhex(self.payload['client_id'])
@@ -77,8 +77,8 @@ class Response:
         elif response_code == SEND_SYMMETRIC_KEY:
             payload_size = struct.unpack('I', packed_response[3:7])
             client_id = packed_response[7:23].hex()
-            packed_encrypted_key = packed_response[23:87]
-            packed_ticket = packed_response[87:208]
+            packed_encrypted_key = packed_response[23:103]
+            packed_ticket = packed_response[103:240]
             encrypted_key = unpack_encrypted_key(packed_encrypted_key)
             ticket = unpack_ticket(packed_ticket)
             payload = {'client_id': client_id, 'encrypted_key': encrypted_key, 'ticket': ticket}

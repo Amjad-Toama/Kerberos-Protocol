@@ -51,7 +51,7 @@ class MessageServer:
         key = bytes.fromhex(self.symmetric_key)
         cipher = AES.new(key, AES.MODE_CBC, ticket_iv)
         # TODO: unpad after adding the padding in the AS class.
-        aes_key = cipher.decrypt(ticket['aes_key'])
+        aes_key = unpad(cipher.decrypt(ticket['aes_key']), AES.block_size)
         expiration_time = decrypt_time(ticket['expiration_time'], key, ticket_iv)
         # update ticket keys with decrypted values
         ticket['aes_key'] = aes_key

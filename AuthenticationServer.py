@@ -168,18 +168,18 @@ class AuthenticationServer:
     @staticmethod
     def get_encrypted_key(aes_key, client, nonce):
         key = bytes.fromhex(client.password_hash)
+        iv = get_random_bytes(IV_LENGTH)
         # encrypt the aes key
-        cipher = AES.new(key, AES.MODE_CBC)
-        encrypted_key = cipher.encrypt(aes_key)
+        cipher = AES.new(key, AES.MODE_CBC, iv)
+        encrypted_aes_key = cipher.encrypt(pad(aes_key, AES.block_size))
         # update the nonce value and encrypt it
-        cipher = AES.new(key, AES.MODE_CBC, cipher.iv)
+        cipher = AES.new(key, AES.MODE_CBC, iv)
         nonce = nonce_update(nonce)
         encrypted_nonce = cipher.encrypt(pad(nonce, AES.block_size))
-        cipher = AES.new(key, AES.MODE_CBC, cipher.iv)
         encrypted_key = {
-            'encrypted_key_iv': cipher.iv,
+            'encrypted_key_iv': iv,
             'nonce': encrypted_nonce,
-            'aes_key': encrypted_key
+            'aes_key': encrypted_aes_key
         }
         return encrypted_key
 
@@ -190,7 +190,7 @@ class AuthenticationServer:
         iv = get_random_bytes(IV_LENGTH)
         cipher = AES.new(key, AES.MODE_CBC, iv)
         # Encrypt symmetric key.
-        encrypted_key = cipher.encrypt(aes_key)
+        encrypted_aes_key = cipher.encrypt(pad(aes_key, AES.block_size))
         # Time stamp
         creation_time = datetime.now()
         # Add duration time
@@ -202,7 +202,7 @@ class AuthenticationServer:
             'server_id': msg_server.uuid,
             'creation_time': creation_time,
             'ticket_iv': iv,
-            'aes_key': encrypted_key,
+            'aes_key': encrypted_aes_key,
             'expiration_time': encrypted_expiration_time
         }
         return ticket

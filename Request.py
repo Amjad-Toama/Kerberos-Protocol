@@ -65,8 +65,8 @@ class Request:
         elif request_code == SEND_TICKET_REQUEST_CODE:
             # encrypted_authenticator length: 128
             packed_authenticator = packed_request[23:151]
-            # ticket length: 121
-            packed_ticket = packed_request[151:272]
+            # ticket length: 137
+            packed_ticket = packed_request[151:288]
             authenticator = unpack_encrypted_authenticator(packed_authenticator)
             ticket = unpack_ticket(packed_ticket)
             payload = {'authenticator': authenticator, 'ticket': ticket}

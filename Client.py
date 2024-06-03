@@ -198,7 +198,7 @@ class Client:
         encrypted_aes_key = encrypted_key['aes_key']
         encrypted_nonce = encrypted_key['nonce']
         cipher = AES.new(bytes.fromhex(self.key), AES.MODE_CBC, iv)
-        aes_key = cipher.decrypt(encrypted_aes_key)
+        aes_key = unpad(cipher.decrypt(encrypted_aes_key), AES.block_size)
         cipher = AES.new(bytes.fromhex(self.key), AES.MODE_CBC, iv)
         nonce = unpad(cipher.decrypt(encrypted_nonce), AES.block_size)
         return aes_key, nonce

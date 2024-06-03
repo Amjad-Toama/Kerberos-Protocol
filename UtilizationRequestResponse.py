@@ -13,7 +13,7 @@ def pack_encrypted_key(encrypted_key):
 def unpack_encrypted_key(packed_encrypted_key):
     encrypted_key_iv = packed_encrypted_key[:16]
     nonce = packed_encrypted_key[16:32]
-    aes_key = packed_encrypted_key[32:64]
+    aes_key = packed_encrypted_key[32:80]
     encrypted_key = {'encrypted_key_iv': encrypted_key_iv, 'nonce': nonce, 'aes_key': aes_key}
     return encrypted_key
 
@@ -37,8 +37,8 @@ def unpack_ticket(packed_ticket):
     server_id = packed_ticket[17:33].hex()
     creation_time = datetime.fromtimestamp(struct.unpack('Q', packed_ticket[33:41])[0])
     ticket_iv = packed_ticket[41:57]
-    aes_key = packed_ticket[57:89]
-    encrypted_expiration_time = packed_ticket[89:121]
+    aes_key = packed_ticket[57:105]
+    encrypted_expiration_time = packed_ticket[105:137]
     ticket = {
         'version': version,
         'client_id': client_id,
@@ -76,25 +76,6 @@ def unpack_encrypted_authenticator(packed_authenticator):
         'creation_time': encrypted_creation_time
     }
     return encrypted_authenticator
-
-
-def pack_message(message):
-    packed_message_size = struct.pack('I', len(message['encrypted_message']))
-    packed_message_iv = message['message_iv']
-    packed_encrypted_message = message['encrypted_message']
-    packed_message = packed_message_size + packed_message_iv + packed_encrypted_message
-    return packed_message
-
-
-def unpack_message(packed_message):
-    message_size = struct.unpack('I', packed_message[:4])[0]
-    message_iv = packed_message[4:20]
-    encrypted_message = packed_message[20:]
-    message = {
-        'message_iv': message_iv,
-        'encrypted_message': encrypted_message
-    }
-    return message
 
 
 def pack_message_header(payload):
