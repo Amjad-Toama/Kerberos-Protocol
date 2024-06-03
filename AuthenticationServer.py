@@ -1,4 +1,6 @@
 import socket
+import threading
+
 from Crypto.Random import get_random_bytes
 from Crypto.Hash import SHA256
 from datetime import datetime, timedelta
@@ -289,37 +291,40 @@ class AuthenticationServer:
         return menu_options
 
 
+def provide_service(client, auth_server):
+    packed_request = client.recv(BUFFER_SIZE)
+    # Unpack the received request
+    request = Request.unpack(packed_request)
+    request_code = request.request_code
+
+    if request_code == REGISTRATION_REQUEST_CODE:
+        # Client Registration
+        username = request.payload['name']
+        password = request.payload['password']
+        registration_response, response_code = auth_server.registration_request(username, password)
+        client.send(registration_response)
+        # After registration client need to sign in
+        if response_code == REGISTRATION_SUCCEED:
+            packed_request = client.recv(BUFFER_SIZE)
+            request = Request.unpack(packed_request)
+            symmetric_key_response = auth_server.symmetric_key_request(request)
+            client.send(symmetric_key_response)
+    elif request_code == SYMMETRIC_REQUEST_CODE:
+        symmetric_key_response = auth_server.symmetric_key_request(request)
+        client.send(symmetric_key_response)
+    else:
+        raise ValueError("Invalid request code.")
+    client.close()
+
 def main():
-    auth_srv = AuthenticationServer()
-    auth_srv.load_endpoint("port.info")
-    auth_srv.load_msg_server("msg.info")
-    auth_srv.load_clients_list("clients")
+    auth_server = AuthenticationServer()
+    auth_server.load_endpoint("port.info")
+    auth_server.load_msg_server("msg.info")
+    auth_server.load_clients_list("clients")
     while True:
         # Listening for connection request
-        client, addr = auth_srv.listen()
-        packed_request = client.recv(1024)
-        # Unpack the received request
-        request = Request.unpack(packed_request)
-        request_code = request.request_code
-
-        if request_code == REGISTRATION_REQUEST_CODE:
-            # Client Registration
-            username = request.payload['name']
-            password = request.payload['password']
-            registration_response, response_code = auth_srv.registration_request(username, password)
-            client.send(registration_response)
-            # After registration client need to sign in
-            if response_code == REGISTRATION_SUCCEED:
-                packed_request = client.recv(1024)
-                request = Request.unpack(packed_request)
-                symmetric_key_response = auth_srv.symmetric_key_request(request)
-                client.send(symmetric_key_response)
-        elif request_code == SYMMETRIC_REQUEST_CODE:
-            symmetric_key_response = auth_srv.symmetric_key_request(request)
-            client.send(symmetric_key_response)
-        else:
-            raise ValueError("Invalid request code.")
-        client.close()
+        client, addr = auth_server.listen()
+        threading.Thread(target=provide_service, args=(client, auth_server)).start()
 
 
 if __name__ == "__main__":
