@@ -16,8 +16,10 @@ MAX_NAME_LEN = 255
 MAX_PASSWORD_LEN = 255
 INFO_FILENAME = "me.info"
 SERVERS_FILENAME = "srv.info"
-BUFFER_SIZE = 4096
 SERVER_ERROR_MESSAGE = "server responded with an error"
+MESSAGE_MAX_BYTES_SIZE = 4
+BITS_PER_BYTE = 8
+MESSAGE_MAX_SIZE = (2 ** (MESSAGE_MAX_BYTES_SIZE * BITS_PER_BYTE)) - 1
 
 
 class Server:
@@ -181,11 +183,15 @@ class Client:
             cipher = AES.new(aes_key, AES.MODE_CBC)
             message = input("message: ")
             encrypted_message = cipher.encrypt(pad(message.encode(), AES.block_size))
-            payload = {'message_size': len(encrypted_message), 'message_iv': cipher.iv,
-                       'encrypted_message': encrypted_message}
+            # Check if the size of the encrypted message exceeds its limits
+            if len(encrypted_message) > MESSAGE_MAX_SIZE:
+                print(f"Unsupported message length: {len(encrypted_message)}")
+                continue
+            payload = {'message_size': len(encrypted_message), 'message_iv': cipher.iv}
             request = Request(self.id, VERSION, SEND_MESSAGE_REQUEST_CODE, payload)
             packed_request = request.pack()
             msg_server_client.send(packed_request)
+            self.send_encrypted_message(msg_server_client, encrypted_message)
 
     def decrypt_encrypted_key(self, encrypted_key):
         iv = encrypted_key['encrypted_key_iv']
@@ -196,10 +202,19 @@ class Client:
         cipher = AES.new(bytes.fromhex(self.key), AES.MODE_CBC, iv)
         nonce = unpad(cipher.decrypt(encrypted_nonce), AES.block_size)
         return aes_key, nonce
+
     @staticmethod
     def msg_server_symmetric_key_response(packed_response):
         response = Response.unpack(packed_response)
         return response.response_code
+
+    @staticmethod
+    def send_encrypted_message(msg_server_client, encrypted_message):
+        message_length = len(encrypted_message)
+        sent_bytes = 0
+        while sent_bytes < message_length:
+            msg_server_client.send(encrypted_message[sent_bytes: sent_bytes + BUFFER_SIZE])
+            sent_bytes += BUFFER_SIZE
 
     @staticmethod
     def nonce_verify(nonce):

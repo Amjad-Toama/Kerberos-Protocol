@@ -41,8 +41,7 @@ class Request:
             packed_payload = packed_authenticator + packed_ticket
             packed_payload_size = struct.pack('I', len(packed_payload))
         elif self.request_code == SEND_MESSAGE_REQUEST_CODE:
-            packed_message = pack_message(self.payload)
-            packed_payload = packed_message
+            packed_payload = pack_message_header(self.payload)
             packed_payload_size = struct.pack('I', len(packed_payload))
         else:
             raise ValueError("Invalid request code.")
@@ -72,8 +71,7 @@ class Request:
             ticket = unpack_ticket(packed_ticket)
             payload = {'authenticator': authenticator, 'ticket': ticket}
         elif request_code == SEND_MESSAGE_REQUEST_CODE:
-            message = unpack_message(packed_request[23:])
-            payload = message
+            payload = unpack_message_header(packed_request[23:])
         else:
             raise ValueError("Invalid request code.")
 

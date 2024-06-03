@@ -93,15 +93,25 @@ class MessageServer:
 
 def receiving_messages(client, address, key):
     while True:
-        packed_request = client.recv(1024)
+        packed_request = client.recv(BUFFER_SIZE)
         request = Request.unpack(packed_request)
-        payload = request.payload
-        iv = payload['message_iv']
-        encrypted_message = payload['encrypted_message']
-        cipher = AES.new(key, AES.MODE_CBC, iv)
+        message_length = request.payload['message_size']
+        message_iv = request.payload['message_iv']
+        client_id = request.client_id
+        encrypted_message = receive_encrypted_message(client, message_length)
+        cipher = AES.new(key, AES.MODE_CBC, message_iv)
         msg = unpad(cipher.decrypt(encrypted_message), AES.block_size).decode()
-        print(f"{address[0]}: {msg}")
+        print(f"{client_id}: {msg}")
 
+
+def receive_encrypted_message(client, message_length):
+    received_bytes = 0
+    encrypted_message = b''
+    while received_bytes < message_length:
+        packed_message = client.recv(BUFFER_SIZE)
+        encrypted_message += packed_message
+        received_bytes += len(packed_message)
+    return encrypted_message
 
 # load message server details.
 def get_symmetric_key(msg_server_file_path):
@@ -120,7 +130,7 @@ def main():
         server.listen()
         client, addr = server.accept()
         # Receive request SEND_TICKET_REQUEST
-        packed_request = client.recv(1024)
+        packed_request = client.recv(BUFFER_SIZE)
         ticket, authenticator, packed_response, response_code = msg_srv.symmetric_key_request(packed_request)
         client.send(packed_response)
         if response_code == GENERAL_RESPONSE_ERROR:

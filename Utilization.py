@@ -3,6 +3,8 @@ from Crypto.Util.Padding import pad, unpad
 from datetime import datetime
 
 VERSION = 24
+# The maximum size of buffer, to transfer or receive.
+BUFFER_SIZE = 4096
 
 def nonce_update(nonce):
     new_nonce = get_value(nonce) - 1

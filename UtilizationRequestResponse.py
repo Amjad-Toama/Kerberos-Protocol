@@ -95,3 +95,19 @@ def unpack_message(packed_message):
         'encrypted_message': encrypted_message
     }
     return message
+
+
+def pack_message_header(payload):
+    packed_message_size = struct.pack('I', payload['message_size'])
+    packed_message_iv = payload['message_iv']
+    return packed_message_size + packed_message_iv
+
+
+def unpack_message_header(packed_message):
+    message_size = struct.unpack('I', packed_message[:4])[0]
+    message_iv = packed_message[4:20]
+    message_header = {
+        'message_size': message_size,
+        'message_iv': message_iv
+    }
+    return message_header

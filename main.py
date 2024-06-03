@@ -23,15 +23,19 @@ def main():
 
 
     """Start: Encyrpting time"""
-    key = get_random_bytes(32)
-    iv = get_random_bytes(16)
-    # Sample datetime.
-    current_time = datetime.now()
-    print(current_time)
-    encrypted_ct = encrypt_time(current_time, key, iv)
-    current_time = decrypt_time(encrypted_ct, key, iv)
-    print(current_time)
+    # key = get_random_bytes(32)
+    # iv = get_random_bytes(16)
+    # # Sample datetime.
+    # current_time = datetime.now()
+    # print(current_time)
+    # encrypted_ct = encrypt_time(current_time, key, iv)
+    # current_time = decrypt_time(encrypted_ct, key, iv)
+    # print(current_time)
     """End: Encyrpting time"""
+
+    message = b''
+    message += get_random_bytes(1)
+    print(type(message))
 
 if __name__ == '__main__':
     main()
