@@ -36,6 +36,9 @@ class Client:
     def __str__(self):
         return f"{self.uuid}:{self.name}:{self.password_hash}:{self.last_seen}"
 
+    def set_last_seen(self, now):
+        self.last_seen = now
+
 
 class Server:
     def __init__(self, ip, port, name, uuid, key):
@@ -148,9 +151,8 @@ class AuthenticationServer:
         client_id = request.client_id
         server_id = request.payload['server_id']
         nonce = request.payload['nonce']
-        # TODO: if the client isn't register.
-        if client_id not in self.clients_dict.keys() or not server_id == self.msg_server.uuid:
-            pass
+        # TODO: update last check in file and memory.
+        self.update_client_last_seen(client_id)
         # Generate symmetric key for client and required server.
         aes_key = get_random_bytes(KEY_LENGTH)
         encrypted_key = self.get_encrypted_key(aes_key, self.clients_dict[client_id], nonce)
@@ -211,6 +213,11 @@ class AuthenticationServer:
     # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
     ###################################################################
 
+    def update_client_last_seen(self, client):
+        now = datetime.now()
+        self.clients_dict[client].set_last_seen(now)
+        # TODO: update the file.
+
     # disconnect client.
     @staticmethod
     def disconnect(client, addr):
@@ -247,17 +254,6 @@ class AuthenticationServer:
         if password is None:
             return None, None
         return username, password
-
-    # verify client password.
-    # def client_verification(self, username, password):
-    #     h = SHA256.new()
-    #     h.update(password.encode('utf-8'))
-    #     if not h.hexdigest() == self.clients_dict[username].hash_password:
-    #         print(f"{username} password doesn't match.")
-    #         return False
-    #     else:
-    #         print(f"Access granted to {username}")
-    #         return True
 
     def get_new_client_id(self):
         client_id = get_random_bytes(ID_LENGTH).hex()
