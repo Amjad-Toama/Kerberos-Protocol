@@ -413,6 +413,7 @@ def main():
         if client is None:
             return
         clear_console()
+
     while True:
         print(f"Hi {client.name}!")
         # Get the password from the client in order to decrypt the key.
