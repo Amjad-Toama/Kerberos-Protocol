@@ -10,6 +10,9 @@ VERSION = 24
 # The maximum size of buffer, to transfer or receive.
 BUFFER_SIZE = 4096
 
+MAX_NAME_LEN = 255
+MAX_PASSWORD_LEN = 255
+
 
 def convert_bytes_to_integer(nonce):
     """
@@ -121,3 +124,75 @@ def receive_long_encrypted_message(client, message_length):
         # Update the received bytes amounts
         received_bytes += len(packed_message)
     return encrypted_message
+
+
+def get_client_info():
+    """
+    Ask for user info and check correctness
+    :return: client name and password as tuple
+    """
+    name = get_name()
+    password = get_password()
+    return name, password
+
+
+def get_name():
+    """
+    Ask user for legal client name
+    :return: legal client name
+    """
+    name = input("Enter name: ").lower()
+    while not legal_name(name):
+        name = input("Enter name: ")
+    return name
+
+
+def get_password():
+    """
+    Ask user for legal client password
+    :return: legal client password
+    """
+    password = input("Enter password: ")
+    while not legal_password(password):
+        password = input("Enter password: ")
+    return password
+
+
+def legal_name(name):
+    """
+    Check client name is legal
+    :param name: name as string
+    :return: Return true if name is legal otherwise false
+    """
+    # Check if the name consist of letters only.
+    if not name.isalpha():
+        print(f"{name} must contain letters only. Try Again.\n")
+        return False
+    # name password is legal
+    elif len(name) > MAX_NAME_LEN:
+        print(f"{name} too long (maximum length {MAX_NAME_LEN}). Try Again.\n")
+        return False
+    else:
+        return True
+
+
+def legal_password(password):
+    """
+    Check if password is legal
+    :param password: user password
+    :return: Return true if password is legal otherwise false
+    """
+    # Check legal length
+    if len(password) > MAX_PASSWORD_LEN:
+        print(f"{password} too long (maximum length {MAX_PASSWORD_LEN}). Try Again.\n")
+        return False
+    else:
+        return True
+
+
+def clear_console():
+    """
+    Clean the console
+    :return:
+    """
+    print("\n" * 100)

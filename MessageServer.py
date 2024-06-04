@@ -177,54 +177,55 @@ class MessageServer:
             client.close()
         else:
             # response_code == SYMMETRIC_KEY_RECEIVED
-            receiving_messages(client, ticket['aes_key'], ticket['expiration_time'])
+            MessageServer.receiving_messages(client, ticket['aes_key'], ticket['expiration_time'])
 
+    @staticmethod
+    def receiving_messages(client, key, expiration_time):
+        """
+        Receive Message Request from the client which is encrypted with symmetric key between Message server and the client,
+        print the message to the screen. if the user want to stop the connection type 'exit'
+        :param client: Active socket to receive message from
+        :param key: symmetric key between Message server and the client
+        :param expiration_time: Expiration time of connection
+        :return:
+        """
 
-def receiving_messages(client, key, expiration_time):
-    """
-    Receive Message Request from the client which is encrypted with symmetric key between Message server and the client,
-    print the message to the screen. if the user want to stop the connection type 'exit'
-    :param client: Active socket to receive message from
-    :param key: symmetric key between Message server and the client
-    :param expiration_time: Expiration time of connection
-    :return:
-    """
-
-    # Firstly, receive the message header (excluding the message content), to be aware of the message content length.
-    # Then, start receiving the message content using receive_long_encrypted_message method that receive long messages.
-    while expiration_time > datetime.now():
-        # receive the message header
-        packed_request = secured_receiving_packet(client)
-        # check if the connection failed.
-        if packed_request is not None:
-            # unpack the request content.
-            request = Request.unpack(packed_request)
-            # Extract important details.
-            message_length = request.payload['message_size']
-            message_iv = request.payload['message_iv']
-            client_id = request.client_id
-            # Receive messages support any message length
-            encrypted_message = receive_long_encrypted_message(client, message_length)
-            # Message content decryption
-            cipher = AES.new(key, AES.MODE_CBC, message_iv)
-            msg = unpad(cipher.decrypt(encrypted_message), AES.block_size).decode()
-            # The client want to exit.
-            # Time of check expiration_time earlier than enforcement time, so message sent after expiration time will
-            # be dismissed.
-            if expiration_time <= datetime.now():
-                packed_response = Response(VERSION, GENERAL_RESPONSE_ERROR, {}).pack()
+        # Firstly, receive the message header (excluding the message content), to be aware of the message content
+        # length. Then, start receiving the message content using receive_long_encrypted_message method that receive
+        # long messages.
+        while expiration_time > datetime.now():
+            # receive the message header
+            packed_request = secured_receiving_packet(client)
+            # check if the connection failed.
+            if packed_request is not None:
+                # unpack the request content.
+                request = Request.unpack(packed_request)
+                # Extract important details.
+                message_length = request.payload['message_size']
+                message_iv = request.payload['message_iv']
+                client_id = request.client_id
+                # Receive messages support any message length
+                encrypted_message = receive_long_encrypted_message(client, message_length)
+                # Message content decryption
+                cipher = AES.new(key, AES.MODE_CBC, message_iv)
+                msg = unpad(cipher.decrypt(encrypted_message), AES.block_size).decode()
+                # The client want to exit.
+                # Time of check expiration_time earlier than enforcement time, so message sent after
+                # expiration time will
+                # be dismissed.
+                if expiration_time <= datetime.now():
+                    packed_response = Response(VERSION, GENERAL_RESPONSE_ERROR, {}).pack()
+                    client.send(packed_response)
+                    return
+                if msg == 'exit':
+                    return
+                # print the message
+                print(f"{client_id}: {msg}")
+                packed_response = Response(VERSION, MESSAGE_RECEIVED, {}).pack()
                 client.send(packed_response)
+            else:
+                # error case
                 return
-            if msg == 'exit':
-                return
-            # print the message
-            print(f"{client_id}: {msg}")
-            packed_response = Response(VERSION, MESSAGE_RECEIVED, {}).pack()
-            client.send(packed_response)
-        else:
-            # error case
-            return
-
 
 
 def main():
