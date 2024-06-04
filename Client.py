@@ -10,9 +10,12 @@ MAX_PASSWORD_LEN = 255
 INFO_FILENAME = "me.info"
 SERVERS_FILENAME = "srv.info"
 SERVER_ERROR_MESSAGE = "server responded with an error"
-MESSAGE_MAX_BYTES_SIZE = 4
+MESSAGE_MAX_BYTES_SIZE = 1
 BITS_PER_BYTE = 8
 MESSAGE_MAX_SIZE = (2 ** (MESSAGE_MAX_BYTES_SIZE * BITS_PER_BYTE)) - 1
+
+SESSION_EXPIRED = 600
+SESSION_ENDED_INITIATIVE = 601
 
 
 class Server:
@@ -185,8 +188,16 @@ class Client:
             packed_request = request.pack()
             msg_server_client.send(packed_request)
             self.send_encrypted_message(msg_server_client, encrypted_message)
+            response = Response.unpack(msg_server_client.recv(BUFFER_SIZE))
+            if response.response_code == MESSAGE_RECEIVED:
+                pass
+            elif response.response_code == GENERAL_RESPONSE_ERROR:
+                print("Session Expired")
+                return SESSION_EXPIRED
+
             if message == 'exit':
-                return
+                print("Session Exit")
+                return SESSION_ENDED_INITIATIVE
 
     def decrypt_encrypted_key(self, encrypted_key):
         iv = encrypted_key['encrypted_key_iv']
@@ -273,7 +284,6 @@ def main():
         print(SERVER_ERROR_MESSAGE)
         return
     # Load client info if existed.
-
     client = Client.load_client_info(INFO_FILENAME)
     # If client is new, send registration request.
     if client is None:
@@ -287,33 +297,47 @@ def main():
         if client is None:
             return
         clear_console()
-    print(f"Hi {client.name}!")
-    # Get the password from the client in order to decrypt the key.
-    password = client.get_password()
-    client.set_key(password)
-    # Send symmetric key request to Authentication Server.
-    packed_request = client.symmetric_key_request()
-    auth_server_client.send(packed_request)
-    packed_response = auth_server_client.recv(BUFFER_SIZE)
-    aes_key, ticket = client.symmetric_key_response(packed_response, packed_request)
-    auth_server_client.close()
+    while True:
+        print(f"Hi {client.name}!")
+        # Get the password from the client in order to decrypt the key.
+        password = client.get_password()
+        client.set_key(password)
+        # Send symmetric key request to Authentication Server.
+        packed_request = client.symmetric_key_request()
+        auth_server_client.send(packed_request)
+        packed_response = auth_server_client.recv(BUFFER_SIZE)
+        aes_key, ticket = client.symmetric_key_response(packed_response, packed_request)
+        auth_server_client.close()
 
-    # Connect to the message server.
-    msg_server_client = connect_to_server(message_server_endpoint)
-    if msg_server_client is None:
-        print(SERVER_ERROR_MESSAGE)
-        return
-    packed_request = client.msg_srv_connection_request(aes_key, ticket)
-    msg_server_client.send(packed_request)
-    packed_response = msg_server_client.recv(BUFFER_SIZE)
-    response_code = Client.msg_server_symmetric_key_response(packed_response)
+        # Connect to the message server.
+        msg_server_client = connect_to_server(message_server_endpoint)
+        if msg_server_client is None:
+            print(SERVER_ERROR_MESSAGE)
+            return
+        packed_request = client.msg_srv_connection_request(aes_key, ticket)
+        msg_server_client.send(packed_request)
+        packed_response = msg_server_client.recv(BUFFER_SIZE)
+        response_code = Client.msg_server_symmetric_key_response(packed_response)
 
-    if response_code == GENERAL_RESPONSE_ERROR:
-        print(SERVER_ERROR_MESSAGE)
-        msg_server_client.close()
-    else:
-        # sending messages
-        client.message_request(aes_key, msg_server_client)
+        if response_code == GENERAL_RESPONSE_ERROR:
+            print(SERVER_ERROR_MESSAGE)
+            msg_server_client.close()
+        else:
+            # sending messages
+            end_code = client.message_request(aes_key, msg_server_client)
+
+        if end_code == SESSION_EXPIRED:
+            prompt = input("Would you like to renew the connection with the message server(Y/n)?").lower()
+            while not prompt == 'y' and not prompt == 'n':
+                prompt = input("Try again, one of the options(Y/n)?").lower()
+            if prompt == 'y':
+                auth_server_client = connect_to_server(auth_server_endpoint)
+                continue
+            else:
+                break
+
+
+
 
 
 if __name__ == '__main__':

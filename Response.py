@@ -52,6 +52,10 @@ class Response:
             # Fictive Payload
             packed_payload = get_random_bytes(16)
             packed_payload_size = struct.pack('I', 0)
+        elif self.response_code == MESSAGE_RECEIVED:
+            # Fictive Payload
+            packed_payload = get_random_bytes(16)
+            packed_payload_size = struct.pack('I', 0)
         elif self.response_code == SYMMETRIC_KEY_RECEIVED:
             # Fictive Payload
             packed_payload = get_random_bytes(16)
@@ -80,6 +84,9 @@ class Response:
             ticket = unpack_ticket(packed_ticket)
             payload = {'client_id': client_id, 'encrypted_key': encrypted_key, 'ticket': ticket}
         elif response_code == GENERAL_RESPONSE_ERROR:
+            payload = None
+            payload_size = 0
+        elif response_code == MESSAGE_RECEIVED:
             payload = None
             payload_size = 0
         elif response_code == SYMMETRIC_KEY_RECEIVED:
