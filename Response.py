@@ -1,8 +1,5 @@
-import struct
-
 from Crypto.Random import get_random_bytes
 from UtilizationRequestResponse import *
-from Utilization import *
 
 REGISTRATION_SUCCEED = 1600
 REGISTRATION_FAILED = 1601

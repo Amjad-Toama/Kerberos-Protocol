@@ -1,11 +1,7 @@
 import socket
 import threading
-
-from Crypto.Random import get_random_bytes
 from Crypto.Hash import SHA256
-from datetime import datetime, timedelta
-from Crypto.Util.Padding import pad, unpad
-from Crypto.Cipher import AES
+from datetime import timedelta
 from Request import *
 from Response import *
 from Utilization import *
@@ -126,14 +122,26 @@ class AuthenticationServer:
 
     def registration_request(self, username, password):
         if self.username_is_exist(username):    # registration failed.
-            return self.registration_failed_response(), REGISTRATION_FAILED
+            return self.registration_failed_response(), REGISTRATION_FAILED, None
         else:   # registration succeed.
             password_hash = AuthenticationServer.get_password_hash(password)
             client_id = self.get_new_client_id()    # get new client id
             new_client = Client(client_id, username, password_hash, datetime.now())
             self.clients_dict[client_id] = new_client    # store new client to memory.
             self.save_new_client(new_client)    # save new client details to file.
-            return self.registration_succeed_response(client_id), REGISTRATION_SUCCEED
+            return self.registration_succeed_response(client_id), REGISTRATION_SUCCEED, client_id
+
+    def is_client(self, client_id):
+        if client_id in self.clients_dict:
+            return True
+        print(f"{client_id}: Unauthorized client")
+        return False
+
+    def is_authorized_server(self, server_uuid):
+        if self.msg_server.uuid == server_uuid:
+            return True
+        print(f"{server_uuid}: Unauthorized server")
+        return False
 
     @staticmethod
     def registration_failed_response():
@@ -152,19 +160,23 @@ class AuthenticationServer:
     def symmetric_key_request(self, request):
         client_id = request.client_id
         server_id = request.payload['server_id']
-        nonce = request.payload['nonce']
-        # TODO: update last check in file and memory.
-        self.update_client_last_seen(client_id)
-        # Generate symmetric key for client and required server.
-        aes_key = get_random_bytes(KEY_LENGTH)
-        encrypted_key = self.get_encrypted_key(aes_key, self.clients_dict[client_id], nonce)
-        ticket = self.get_ticket(aes_key, self.msg_server, client_id)
-        payload = {
-            'client_id': client_id,
-            'encrypted_key': encrypted_key,
-            'ticket': ticket
-        }
-        response = Response(VERSION, SEND_SYMMETRIC_KEY, payload)
+        # Check if symmetric key request received from authorized entity.
+        if not self.is_client(client_id) or not self.is_authorized_server(server_id):
+            response = Response(VERSION, GENERAL_RESPONSE_ERROR, {})
+        else:
+            nonce = request.payload['nonce']
+            # TODO: update last check in file.
+            self.update_client_last_seen(client_id)
+            # Generate symmetric key for client and required server.
+            aes_key = get_random_bytes(KEY_LENGTH)
+            encrypted_key = self.get_encrypted_key(aes_key, self.clients_dict[client_id], nonce)
+            ticket = self.get_ticket(aes_key, self.msg_server, client_id)
+            payload = {
+                'client_id': client_id,
+                'encrypted_key': encrypted_key,
+                'ticket': ticket
+            }
+            response = Response(VERSION, SEND_SYMMETRIC_KEY, payload)
         return response.pack()
 
     @staticmethod
@@ -269,7 +281,6 @@ class AuthenticationServer:
         server.bind((self.ip_address, self.port_number))
         server.listen()
         client, addr = server.accept()
-        print(f"Connected to {addr[0]}")
         return client, addr
 
     def username_is_exist(self, username):
@@ -291,40 +302,48 @@ class AuthenticationServer:
         return menu_options
 
 
-def provide_service(client, auth_server):
-    packed_request = client.recv(BUFFER_SIZE)
+def provide_service(client, addr, auth_server):
+    packed_request = secured_receiving_packet(client)
+    if packed_request is None:
+        return
     # Unpack the received request
     request = Request.unpack(packed_request)
     request_code = request.request_code
-
     if request_code == REGISTRATION_REQUEST_CODE:
+        print(f"{addr[0]} - Registration Request")
         # Client Registration
         username = request.payload['name']
         password = request.payload['password']
-        registration_response, response_code = auth_server.registration_request(username, password)
+        registration_response, response_code, client_id = auth_server.registration_request(username, password)
         client.send(registration_response)
         # After registration client need to sign in
         if response_code == REGISTRATION_SUCCEED:
+            print(f"{addr[0]}:{client_id} Registration Succeed")
             packed_request = client.recv(BUFFER_SIZE)
             request = Request.unpack(packed_request)
             symmetric_key_response = auth_server.symmetric_key_request(request)
             client.send(symmetric_key_response)
+        else:
+            print(f"{addr[0]}: Registration Failed.")
     elif request_code == SYMMETRIC_REQUEST_CODE:
+        print(f"{addr[0]}:{request.client_id} - Symmetric Key Request")
         symmetric_key_response = auth_server.symmetric_key_request(request)
         client.send(symmetric_key_response)
     else:
         raise ValueError("Invalid request code.")
     client.close()
 
+
 def main():
     auth_server = AuthenticationServer()
     auth_server.load_endpoint("port.info")
     auth_server.load_msg_server("msg.info")
     auth_server.load_clients_list("clients")
+    print("Waiting to Connection...")
     while True:
         # Listening for connection request
         client, addr = auth_server.listen()
-        threading.Thread(target=provide_service, args=(client, auth_server)).start()
+        threading.Thread(target=provide_service, args=(client, addr, auth_server)).start()
 
 
 if __name__ == "__main__":

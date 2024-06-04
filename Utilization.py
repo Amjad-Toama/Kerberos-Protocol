@@ -8,13 +8,15 @@ BUFFER_SIZE = 4096
 
 
 def nonce_update(nonce):
-    new_nonce = get_value(nonce) - 1
+    new_nonce = get_value(nonce) + 1
     return new_nonce.to_bytes(8, byteorder='big')
 
 
 def get_value(nonce):
     return int.from_bytes(nonce, byteorder='big')
 
+
+print(get_value(nonce_update((0).to_bytes(8, byteorder='big'))))
 
 def encrypt_time(dt, key, iv):
     # Convert datetime to bytes
@@ -39,4 +41,18 @@ def datetime_to_bytes(dt):
 
 def bytes_to_datetime(dt):
     return datetime.fromisoformat(dt.decode('utf-8'))
+
+
+def secured_receiving_packet(client):
+    try:
+        packet = client.recv(BUFFER_SIZE)
+        if not packet:
+            print("Disconnected from the server.")
+        else:
+            return packet
+    except OSError:
+        print("Connection closed")
+    except Exception as e:
+        print(f"An error occurred {e}")
+    return None
 

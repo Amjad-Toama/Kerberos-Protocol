@@ -1,12 +1,8 @@
 import socket
 import threading
-import time
-from datetime import timedelta
-
 from Request import *
 from Response import *
 from Utilization import *
-
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
 
@@ -87,31 +83,34 @@ class MessageServer:
         }
         return authenticator
 
-    def extract_symmetric_key(self, data):
-        pass
 
-
-def receiving_messages(client, address, key):
+def receiving_messages(client, key):
     while True:
-        packed_request = client.recv(BUFFER_SIZE)
-        request = Request.unpack(packed_request)
-        message_length = request.payload['message_size']
-        message_iv = request.payload['message_iv']
-        client_id = request.client_id
-        encrypted_message = receive_encrypted_message(client, message_length)
-        cipher = AES.new(key, AES.MODE_CBC, message_iv)
-        msg = unpad(cipher.decrypt(encrypted_message), AES.block_size).decode()
-        print(f"{client_id}: {msg}")
+        packed_request = secured_receiving_packet(client)
+        if packed_request is not None:
+            request = Request.unpack(packed_request)
+            message_length = request.payload['message_size']
+            message_iv = request.payload['message_iv']
+            client_id = request.client_id
+            encrypted_message = receive_encrypted_message(client, message_length)
+            cipher = AES.new(key, AES.MODE_CBC, message_iv)
+            msg = unpad(cipher.decrypt(encrypted_message), AES.block_size).decode()
+            if msg == 'exit':
+                return
+            print(f"{client_id}: {msg}")
+        else:
+            break
 
 
 def receive_encrypted_message(client, message_length):
     received_bytes = 0
     encrypted_message = b''
     while received_bytes < message_length:
-        packed_message = client.recv(BUFFER_SIZE)
+        packed_message = secured_receiving_packet(client)
         encrypted_message += packed_message
         received_bytes += len(packed_message)
     return encrypted_message
+
 
 # load message server details.
 def get_symmetric_key(msg_server_file_path):
@@ -122,22 +121,27 @@ def get_symmetric_key(msg_server_file_path):
     return symmetric_key
 
 
+def provide_service(msg_srv, client):
+    # Receive request SEND_TICKET_REQUEST
+    packed_request = client.recv(BUFFER_SIZE)
+    ticket, authenticator, packed_response, response_code = msg_srv.symmetric_key_request(packed_request)
+    client.send(packed_response)
+    if response_code == GENERAL_RESPONSE_ERROR:
+        client.close()
+    else:
+        # response_code == SYMMETRIC_KEY_RECEIVED
+        receiving_messages(client, ticket['aes_key'])
+
+
 def main():
     msg_srv = MessageServer()
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.bind((msg_srv.server_ip, msg_srv.server_port))
+    print("Waiting to Connection...")
     while True:
         server.listen()
         client, addr = server.accept()
-        # Receive request SEND_TICKET_REQUEST
-        packed_request = client.recv(BUFFER_SIZE)
-        ticket, authenticator, packed_response, response_code = msg_srv.symmetric_key_request(packed_request)
-        client.send(packed_response)
-        if response_code == GENERAL_RESPONSE_ERROR:
-            client.close()
-        else:
-            # response_code == SYMMETRIC_KEY_RECEIVED
-            threading.Thread(target=receiving_messages, args=(client, addr[0], ticket['aes_key'])).start()
+        threading.Thread(target=provide_service, args=(msg_srv, client)).start()
 
 
 if __name__ == '__main__':

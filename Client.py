@@ -1,13 +1,6 @@
 import os.path
 import socket
-import threading
-from datetime import time
-from random import randint
-
-from Crypto.Cipher import AES
-from Crypto.Util.Padding import pad, unpad
 from Crypto.Hash import SHA256
-
 from Request import *
 from Response import *
 from Utilization import *
@@ -192,6 +185,8 @@ class Client:
             packed_request = request.pack()
             msg_server_client.send(packed_request)
             self.send_encrypted_message(msg_server_client, encrypted_message)
+            if message == 'exit':
+                return
 
     def decrypt_encrypted_key(self, encrypted_key):
         iv = encrypted_key['encrypted_key_iv']
@@ -254,6 +249,21 @@ def connect_to_server(endpoint):
         print("Connection Failed.")
 
 
+def clear_console():
+    print("\n" * 100)
+
+
+def menu():
+    menu_options = """
+        Menu:
+        0. Close
+        1. Get Symmetric Key
+        2. Registration
+        3. Connect to Message Server
+        """
+    return menu_options
+
+
 def main():
     # Parse Servers endpoints.
     auth_server_endpoint, message_server_endpoint = parse_servers_file(SERVERS_FILENAME)
@@ -267,6 +277,7 @@ def main():
     client = Client.load_client_info(INFO_FILENAME)
     # If client is new, send registration request.
     if client is None:
+        print("Registration to System")
         # Send Registration Request to Authentication Server.
         packed_request = Client.registration_request()
         auth_server_client.send(packed_request)
@@ -275,6 +286,8 @@ def main():
         # registration error
         if client is None:
             return
+        clear_console()
+    print(f"Hi {client.name}!")
     # Get the password from the client in order to decrypt the key.
     password = client.get_password()
     client.set_key(password)
