@@ -1,10 +1,57 @@
-from Crypto.Cipher import AES
-from Crypto.Util.Padding import pad, unpad
-from datetime import datetime
-
 """
 Utilization module provide repeated functionality used by various modules.
+
+    * def convert_bytes_to_integer(nonce) - return integer
+        - Convert nonce bytes representation to integer representation.
+
+    * def nonce_update(nonce) - return bytes
+        - Update the value of nonce
+
+    * def bytes_to_datetime(dt) - return datetime
+        - Convert bytes type to datetime type representation
+
+    * def datetime_to_bytes(dt) - return bytes
+        - Convert datetime type to bytes representation
+
+    * def encrypt_time(dt, key, iv) - return bytes
+        - Encrypt the datetime
+
+    * def decrypt_time(encrypted_dt, key, iv) - return datetime
+        - decrypt datetime type
+
+    * secured_receiving_packet(client) - return bytes
+        - Receiving packet and ensure prevent crashing to the receiver
+
+    * def receive_long_encrypted_message(client, message_length) - return bytes
+        - Handle long messages content, support any length
+
+    * def get_client_info() - return string, string
+        - Ask for user info and check correctness
+
+    * def get_name() - return string
+        - Ask user for legal client name
+
+    * def get_password() - return string
+        - Ask user for legal client password
+
+    * def legal_name(name) - return boolean
+        - Check client name is legal
+
+    * def legal_password(password) - return boolean
+        - Check if password is legal
+
+    * def get_password_hash(password): return hex
+        - given string password, extract the 32 byte key in hex
+
+    * def clear_console() - return void
+        - Clean the console
+
 """
+
+from Crypto.Cipher import AES
+from Crypto.Hash import SHA256
+from Crypto.Util.Padding import pad, unpad
+from datetime import datetime
 
 VERSION = 24
 # The maximum size of buffer, to transfer or receive.
@@ -77,7 +124,7 @@ def decrypt_time(encrypted_dt, key, iv):
     :return: decrypted datetime
     """
     cipher = AES.new(key, AES.MODE_CBC, iv)
-    # Decrypting and unpadding the encrypted datetime
+    # Decrypting and undo padding the encrypted datetime
     dt_bytes = unpad(cipher.decrypt(encrypted_dt), AES.block_size)
     # Convert the datetime bytes representation to datetime type.
     dt = bytes_to_datetime(dt_bytes)
@@ -196,3 +243,14 @@ def clear_console():
     :return:
     """
     print("\n" * 100)
+
+
+def get_password_hash(password):
+    """
+    given string password, extract the 32 byte key
+    :param password: str, password
+    :return: 32 bytes key in hex
+    """
+    h = SHA256.new()
+    h.update(password.encode('utf-8'))
+    return h.hexdigest()

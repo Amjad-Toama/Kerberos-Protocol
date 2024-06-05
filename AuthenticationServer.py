@@ -1,7 +1,9 @@
 import socket
 import threading
-from Crypto.Hash import SHA256
 from datetime import timedelta
+
+from Crypto.Random import get_random_bytes
+
 from Request import *
 from Response import *
 from Utilization import *
@@ -45,15 +47,6 @@ class Server:
     def __str__(self):
         return f"{self.ip}:{self.port}\n{self.name}\n{self.uuid}\n{self.key}"
 
-###################################################################
-# ########## Instruction to add requests to the server ########## #
-###################################################################
-# 1. implement the request method in requests section.            #
-# 2. specify the request number to menu() method as string.       #
-# 3. implement "if" statement with number in the main method.     #
-# NOTE: utilization methods implementation in utilization section.#
-###################################################################
-
 
 class AuthenticationServer:
     def __init__(self):
@@ -71,7 +64,6 @@ class AuthenticationServer:
     # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
     ###################################################################
 
-    # load authentication endpoint.
     def load_endpoint(self, endpoint_filepath):
         self.endpoint_file_path = endpoint_filepath
         try:
@@ -86,7 +78,6 @@ class AuthenticationServer:
         except Exception as e:
             print("An error occurred:", e)
 
-    # load clients from file to memory.
     def load_clients_list(self, clients_filepath):
         self.clients_file_path = clients_filepath
         fd = open(clients_filepath, "r")
@@ -98,7 +89,6 @@ class AuthenticationServer:
         fd.close()
         return self.clients_dict
 
-    # load message server details.
     def load_msg_server(self, msg_server_filepath):
         fd = open(msg_server_filepath, "r")
         lines = fd.readlines()
@@ -116,72 +106,104 @@ class AuthenticationServer:
     # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
     ###################################################################
 
-    # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
     # # # # # # # # # # # # Registration  # # # # # # # # # # # # # # #
-    # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
-    def registration_request(self, username, password):
+    def registration_request(self, request):
+        """
+        handle registration request from new client, check if registration is valid (username is valid), if so
+        return success response, code, and client id otherwise, failed response, code, and None.
+        :param request: Request | registration request
+        :return: tuple | (packed Response - bytes, int, hex) - response, code, client ID
+        """
+        # extract new client info
+        username = request.payload['name']
+        password = request.payload['password']
+        # check if the username is invalid
         if self.username_is_exist(username):    # registration failed.
+            # failed response, failed code, and None as no client ID provided.
             return self.registration_failed_response(), REGISTRATION_FAILED, None
         else:   # registration succeed.
-            password_hash = AuthenticationServer.get_password_hash(password)
-            client_id = self.get_new_client_id()    # get new client id
+            # extract symmetric key from the password
+            password_hash = get_password_hash(password)
+            # generate unique client id
+            client_id = self.get_new_client_id()
+            # create new instant of client
             new_client = Client(client_id, username, password_hash, datetime.now())
-            self.clients_dict[client_id] = new_client    # store new client to memory.
-            self.save_new_client(new_client)    # save new client details to file.
+            # store new client to memory.
+            self.clients_dict[client_id] = new_client
+            # save new client details to file.
+            self.save_new_client(new_client)
+            # success response, success code, and new client id
             return self.registration_succeed_response(client_id), REGISTRATION_SUCCEED, client_id
-
-    def is_client(self, client_id):
-        if client_id in self.clients_dict:
-            return True
-        print(f"{client_id}: Unauthorized client")
-        return False
-
-    def is_authorized_server(self, server_uuid):
-        if self.msg_server.uuid == server_uuid:
-            return True
-        print(f"{server_uuid}: Unauthorized server")
-        return False
 
     @staticmethod
     def registration_failed_response():
+        """
+        return packed failed response
+        :return: failed response as bytes
+        """
         response = Response(VERSION, REGISTRATION_FAILED, {})
         return response.pack()
 
     @staticmethod
     def registration_succeed_response(client_id):
+        """
+        return packed success response
+        :return: success response as bytes
+        """
         response = Response(VERSION, REGISTRATION_SUCCEED, {'client_id': client_id})
         return response.pack()
 
-    # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
     # # # # # # # # # # # # # Symmetric Key # # # # # # # # # # # # # #
-    # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
     def symmetric_key_request(self, request):
+        """
+        Handle symmetric key request received from client
+        :param request: Request | symmetric key request
+        :return: packed Response - bytes | SEND_SYMMETRIC_KEY or GENERAL_RESPONSE_ERROR response
+        """
+        # Extract info for authentication process
         client_id = request.client_id
         server_id = request.payload['server_id']
         # Check if symmetric key request received from authorized entity.
         if not self.is_client(client_id) or not self.is_authorized_server(server_id):
+            # unauthorized request
             response = Response(VERSION, GENERAL_RESPONSE_ERROR, {})
         else:
+            # authentication process - succeed
+            # extract details to generate aes key as response
             nonce = request.payload['nonce']
-            # TODO: update last check in file.
+            # update client last seen.
             self.update_client_last_seen(client_id)
             # Generate symmetric key for client and required server.
             aes_key = get_random_bytes(KEY_LENGTH)
+            # create encrypted key to client
             encrypted_key = self.get_encrypted_key(aes_key, self.clients_dict[client_id], nonce)
+            # create ticket to message server
             ticket = self.get_ticket(aes_key, self.msg_server, client_id)
+            # create payload
             payload = {
                 'client_id': client_id,
                 'encrypted_key': encrypted_key,
                 'ticket': ticket
             }
+            # prepare proper response
             response = Response(VERSION, SEND_SYMMETRIC_KEY, payload)
+        # return packed response
         return response.pack()
 
     @staticmethod
     def get_encrypted_key(aes_key, client, nonce):
+        """
+        Create encrypted key encrypted using client password (extracted), update nonce value
+        :param aes_key: aes key to be encrypted
+        :param client: client to encrypt for
+        :param nonce: nonce sent from client
+        :return: dictionary encrypted key
+        """
+        # convert password to bytes
         key = bytes.fromhex(client.password_hash)
+        # generate initial vector
         iv = get_random_bytes(IV_LENGTH)
         # encrypt the aes key
         cipher = AES.new(key, AES.MODE_CBC, iv)
@@ -189,7 +211,8 @@ class AuthenticationServer:
         # update the nonce value and encrypt it
         cipher = AES.new(key, AES.MODE_CBC, iv)
         nonce = nonce_update(nonce)
-        encrypted_nonce = cipher.encrypt(pad(nonce, AES.block_size))
+        encrypted_nonce = cipher.encrypt(pad(nonce, AES.block_size))  # encrypt nonce
+        # create encrypted key
         encrypted_key = {
             'encrypted_key_iv': iv,
             'nonce': encrypted_nonce,
@@ -199,17 +222,26 @@ class AuthenticationServer:
 
     @staticmethod
     def get_ticket(aes_key, msg_server, client_id):
-        # Generate Key and Initial Vector
+        """
+        Create encrypted ticket using message server symmetric key
+        :param aes_key: aes key to be encrypted
+        :param msg_server: message server to encrypt for
+        :param client_id: client ask for the request
+        :return: dictionary | ticket
+        """
+        # Convert message server key to bytes
         key = bytes.fromhex(msg_server.key)
+        # generate initial vector
         iv = get_random_bytes(IV_LENGTH)
         cipher = AES.new(key, AES.MODE_CBC, iv)
         # Encrypt symmetric key.
         encrypted_aes_key = cipher.encrypt(pad(aes_key, AES.block_size))
         # Time stamp
         creation_time = datetime.now()
-        # Add duration time
+        # Add duration time TICKET_TIME_DURATION
         expiration_time = creation_time + timedelta(hours=TICKET_TIME_DURATION)
         encrypted_expiration_time = encrypt_time(expiration_time, key, iv)
+        # create a ticket
         ticket = {
             'version': VERSION,
             'client_id': client_id,
@@ -228,78 +260,86 @@ class AuthenticationServer:
     ###################################################################
 
     def update_client_last_seen(self, client):
+        """
+        update last seen of client in memory and on the file
+        :param client: client entity
+        :return:
+        """
+        # Current time
         now = datetime.now()
+        # update the datetime in the memory
         self.clients_dict[client].set_last_seen(now)
         # TODO: update the file.
 
-    # disconnect client.
-    @staticmethod
-    def disconnect(client, addr):
-        print(f"{addr[0]} Disconnected")
-        client.send("Disconnected".encode())
-        client.close()
-
-    # generate encrypted symmetric key to client.
-    @staticmethod
-    def get_encrypted_symmetric_key(encryption_key, symmetric_key):
-        # key is hex format (64 bit)
-        key = bytes.fromhex(encryption_key)
-        cipher = AES.new(key, AES.MODE_CBC)
-        encrypted_symmetric_key = cipher.encrypt(pad(symmetric_key, AES.block_size))
-        return cipher.iv, encrypted_symmetric_key
-
-    @staticmethod
-    def get_password_hash(password):
-        h = SHA256.new()
-        h.update(password.encode('utf-8'))
-        return h.hexdigest()
-
     def save_new_client(self, new_client):
+        """
+        store new client info into "client.info" file
+        :param new_client:
+        :return:
+        """
         f = open(self.clients_file_path, "a")
+        # write the new client info to file
         f.write(str(new_client) + "\n")
         f.close()
 
-    # get username and password from new client, in registration process.
-    def get_new_user_details(self, client):
-        username = self.get_new_username(client)
-        if username is None:
-            return None, None
-        password = self.get_password(client)
-        if password is None:
-            return None, None
-        return username, password
-
     def get_new_client_id(self):
+        """
+        Generate unique hex client ID of length ID_LENGTH
+        :return: hex client ID
+        """
+        # generate random bytes of ID_LENGTH length
         client_id = get_random_bytes(ID_LENGTH).hex()
+        # check if the generated client ID already exist.
         while client_id in self.clients_dict.keys():
+            # generate random bytes of ID_LENGTH length
             client_id = get_random_bytes(ID_LENGTH).hex()
         return client_id
 
-    # listen on the socket.
-    def listen(self):
-        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        server.bind((self.ip_address, self.port_number))
-        server.listen()
-        client, addr = server.accept()
-        return client, addr
+    def is_client(self, client_id):
+        """
+        check if client id is authorized to access the system
+        :param client_id: hex client ID
+        :return: true if registered, otherwise false
+        """
+        if client_id in self.clients_dict:
+            return True
+        print(f"{client_id}: Unauthorized client")
+        return False
+
+    def is_authorized_server(self, server_uuid):
+        """
+        check if the server_uuid is authorized and registered as server
+        :param server_uuid: hex uuid
+        :return: true if authorized, otherwise false
+        """
+        # check if provided uuid is equal to the one the authenticator server support
+        if self.msg_server.uuid == server_uuid:
+            return True
+        print(f"{server_uuid}: Unauthorized server")
+        return False
 
     def username_is_exist(self, username):
+        """
+        Check if client is registered in the system, if so return true. otherwise false.
+        :param username: str, username
+        :return: return true if user already registered. otherwise false
+        """
+        # check if the client exist in the memory.
         for client in self.clients_dict.keys():
             if self.clients_dict[client].name == username:
                 return True
         return False
 
-    # return menu
-    @staticmethod
-    def menu():
-        menu_options = """
-            Menu:
-            0. Close
-            1. Get Symmetric Key
-            2. Registration
-            Note: Submit 0 anytime to stop the process.
-            """
-        return menu_options
+    def listen(self):
+        """
+        Listen to the defined endpoint
+        :return: socket and address
+        """
+        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server.bind((self.ip_address, self.port_number))
+        server.listen()
+        client, addr = server.accept()
+        return client, addr
 
 
 def provide_service(client, addr, auth_server):
@@ -311,10 +351,7 @@ def provide_service(client, addr, auth_server):
     request_code = request.request_code
     if request_code == REGISTRATION_REQUEST_CODE:
         print(f"{addr[0]} - Registration Request")
-        # Client Registration
-        username = request.payload['name']
-        password = request.payload['password']
-        registration_response, response_code, client_id = auth_server.registration_request(username, password)
+        registration_response, response_code, client_id = auth_server.registration_request(request)
         client.send(registration_response)
         # After registration client need to sign in
         if response_code == REGISTRATION_SUCCEED:

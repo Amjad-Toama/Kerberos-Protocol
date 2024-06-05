@@ -11,21 +11,25 @@ class MessageServer:
     """
     Functionality of Message Server
 
-    Attributes
-    ----------
+    ################## Attributes ##################
+
     server_ip : str
         The IP that the server on.
+
     server_port : int
         The port the server listening on.
+
     server_name : str
         Message server name
+
     server_id : str
         Server uuid
+
     symmetric_key : str
         Symmetric key shared between message server and authentication server
 
-    Methods
-    ----------
+    #################### Methods ###################
+
     parse_endpoint_file(endpoint_file_path)
         Parse the information file and initialize the message server details.
 
@@ -92,7 +96,7 @@ class MessageServer:
 
     def symmetric_key_request(self, packed_request):
         """
-        Handle connection request from user, check potential of replay attack.
+        Handle connection request from user, check potential of replay attack
         :param packed_request: packed request from the user
         :return: In valid case, return decrypted ticket, decrypted authenticator, packet response, and Response code.
         """
@@ -182,8 +186,8 @@ class MessageServer:
     @staticmethod
     def receiving_messages(client, key, expiration_time):
         """
-        Receive Message Request from the client which is encrypted with symmetric key between Message server and the client,
-        print the message to the screen. if the user want to stop the connection type 'exit'
+        Receive Message Request from the client which is encrypted with symmetric key between Message server and
+        the client print the message to the screen. if the user want to stop the connection type 'exit'
         :param client: Active socket to receive message from
         :param key: symmetric key between Message server and the client
         :param expiration_time: Expiration time of connection
@@ -244,5 +248,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-

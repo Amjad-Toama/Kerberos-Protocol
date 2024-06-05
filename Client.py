@@ -1,6 +1,7 @@
 import os.path
 import socket
-from Crypto.Hash import SHA256
+from Crypto.Random import get_random_bytes
+
 from Request import *
 from Response import *
 from Utilization import *
@@ -28,6 +29,24 @@ class Server:
 
 
 class Client:
+    """
+    Request class facilitate into converting request to bytes representation and vice versa.
+
+    ################## Attributes ##################
+
+    name   :   string
+        client name
+
+    id     :   hex
+        id received from authentication server in registration stage
+
+    key:   hex
+        symmetric key shared with message key, that generated from authenticator server.
+
+    #################### Methods ###################
+
+    """
+
     def __init__(self, name, id, key=None):
         self.name = name
         self.id = id
@@ -39,10 +58,7 @@ class Client:
         :param key: user password
         :return:
         """
-        # Extract the symmetric key from the password
-        h = SHA256.new()
-        h.update(key.encode('utf=8'))
-        self.key = h.hexdigest()
+        self.key = get_password_hash(key)
 
     @classmethod
     def load_client_info(cls, info_filename):
@@ -260,7 +276,7 @@ class Client:
         create message request to message server
         :param aes_key: symmetric sey shared with the message server
         :param msg_server_client: socket to send the request.
-        :return: if the session end initiatively returned SESSION_ENDED_INITIATIVE, or SESSION_EXPIRED if session
+        :return: if client initiative session end returned SESSION_ENDED_INITIATIVE, or SESSION_EXPIRED if session
         expired
         """
         # Firstly, send the header request that includes encrypted message length, then send the message content
@@ -280,7 +296,7 @@ class Client:
             response_code = Client.message_response(msg_server_client)
             if response_code != MESSAGE_RECEIVED:
                 return response_code
-            # check if the user initiatively end session
+            # check initiative end session by client
             if message == 'exit':
                 print("Session Exit")
                 return SESSION_ENDED_INITIATIVE
@@ -417,7 +433,7 @@ def main():
     while True:
         print(f"Hi {client.name}!")
         # Get the password from the client in order to decrypt the key.
-        password = client.get_password()
+        password = get_password()
         client.set_key(password)
         # Send symmetric key request to Authentication Server.
         packed_request = client.symmetric_key_request()
@@ -439,9 +455,9 @@ def main():
         if response_code == GENERAL_RESPONSE_ERROR:
             print(SERVER_ERROR_MESSAGE)
             msg_server_client.close()
-        else:
-            # sending messages
-            end_code = client.message_request(aes_key, msg_server_client)
+            break
+        # sending messages
+        end_code = client.message_request(aes_key, msg_server_client)
 
         if end_code == SESSION_EXPIRED:
             prompt = input("Would you like to renew the connection with the message server(Y/n)?").lower()
