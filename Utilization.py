@@ -231,7 +231,7 @@ def legal_password(password):
     """
     # Check legal length
     if len(password) > MAX_PASSWORD_LEN:
-        print(f"{password} too long (maximum length {MAX_PASSWORD_LEN}). Try Again.\n")
+        print(f"too long (maximum length {MAX_PASSWORD_LEN}). Try Again.\n")
         return False
     else:
         return True
@@ -249,7 +249,7 @@ def get_password_hash(password):
     """
     given string password, extract the 32 byte key
     :param password: str, password
-    :return: 32 bytes key in hex
+    :return: 64 key in hex
     """
     h = SHA256.new()
     h.update(password.encode('utf-8'))

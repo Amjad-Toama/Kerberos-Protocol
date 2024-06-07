@@ -1,7 +1,7 @@
 import os.path
 import socket
 from Crypto.Random import get_random_bytes
-
+from fileValidity import *
 from Request import *
 from Response import *
 from Utilization import *
@@ -9,15 +9,17 @@ from Utilization import *
 INFO_FILENAME = "me.info"
 SERVERS_FILENAME = "srv.info"
 SERVER_ERROR_MESSAGE = "server responded with an error"
-MESSAGE_MAX_BYTES_SIZE = 1
+MESSAGE_MAX_BYTES_SIZE = 4
 BITS_PER_BYTE = 8
 MESSAGE_MAX_SIZE = (2 ** (MESSAGE_MAX_BYTES_SIZE * BITS_PER_BYTE)) - 1
+DEFAULT_AUTHENTICATION_PORT = 1256
 
 IV_LENGTH = 16
 NONCE_SIZE = 8
 
 SESSION_EXPIRED = 600
 SESSION_ENDED_INITIATIVE = 601
+MAX_TRIES = 3
 
 
 class Server:
@@ -37,8 +39,8 @@ class Client:
     name   :   string
         client name
 
-    id     :   hex
-        id received from authentication server in registration stage
+    uuid     :   hex
+        uuid received from authentication server in registration stage
 
     key:   hex
         symmetric key shared with message key, that generated from authenticator server.
@@ -47,51 +49,58 @@ class Client:
 
     """
 
-    def __init__(self, name, id, key=None):
+    def __init__(self, name, uuid, key=None):
         self.name = name
-        self.id = id
+        self.uuid = uuid
         self.key = key
 
-    def set_key(self, key):
+    def set_key(self, password):
         """
         Set the client symmetric key with Authentication server that extracted from user password
-        :param key: user password
+        :param password: user password
         :return:
         """
-        self.key = get_password_hash(key)
+        self.key = get_password_hash(password)
 
     @classmethod
-    def load_client_info(cls, info_filename):
+    def load_client_info(cls, filename):
         """
         Load the client info if exist from info_filename, otherwise return None
         file structure:
             name
-            user_id
-        :param info_filename: client info file
+            user_uuid
+        :param filename: client info file
         :return: Client initialized instance if succeeded, otherwise return None
         """
         # Open the file and read its contents
-        if os.path.exists(info_filename):
-            with open(info_filename, "r") as file:
-                lines = file.readlines()
-                # Extract file info
-                name = lines[0].strip()
-                id = lines[1].strip()
-                # Return client instance
-                return cls(name, id)
+        if os.path.exists(filename):
+            if is_valid_me_info(filename):
+                with open(filename, "r") as file:
+                    lines = file.readlines()
+                    name = lines[0].strip()
+                    uuid = lines[1].strip()
+                    # Return client instance
+                    return cls(name, uuid)
+            else:
+                print(f"Error occur in {filename} file.")
+                exit()
         return None
 
     def store_client_info(self):
         """
         Create info file "me.info" with the structure:
             client_name
-            client_id
+            client_uuid
         :return:
         """
-        with open("me.info", "w") as file:
-            # Write the info to the file
-            file.write(self.name + "\n")
-            file.write(self.id + "\n")
+        try:
+            with open("me.info", "w") as file:
+                # Write the info to the file
+                file.write(self.name + "\n")
+                file.write(self.uuid + "\n")
+        except ValueError as e:
+            print("unexpected error occur", e)
+            exit()
         file.close()
 
     def msg_srv_connection_request(self, aes_key, ticket):
@@ -106,7 +115,7 @@ class Client:
         # Create the payload
         payload = {'authenticator': authenticator, 'ticket': ticket}
         # Prepare the request to send.
-        request = Request(self.id, VERSION, SEND_TICKET_REQUEST_CODE, payload)
+        request = Request(self.uuid, VERSION, SEND_TICKET_REQUEST_CODE, payload)
         return request.pack()
 
     def get_encrypted_authenticator(self, aes_key):
@@ -119,15 +128,15 @@ class Client:
         iv = get_random_bytes(IV_LENGTH)
         # encrypt values
         encrypted_version = Client.encrypt_version(aes_key, iv)
-        encrypted_client_id = Client.encrypt_client_id(self.id, aes_key, iv)
-        encrypted_server_id = Client.encrypt_server_id(bytes.fromhex("64f3f63985f04beb81a0e43321880182"), aes_key, iv)
+        encrypted_client_uuid = Client.encrypt_client_uuid(self.uuid, aes_key, iv)
+        encrypted_server_uuid = Client.encrypt_server_uuid(bytes.fromhex("64f3f63985f04beb81a0e43321880182"), aes_key, iv)
         encrypted_creation_time = encrypt_time(datetime.now(), aes_key, iv)
         # Create authenticator
         authenticator = {
             'authenticator_iv': iv,
             'version': encrypted_version,
-            'client_id': encrypted_client_id,
-            'server_id': encrypted_server_id,
+            'client_uuid': encrypted_client_uuid,
+            'server_uuid': encrypted_server_uuid,
             'creation_time': encrypted_creation_time
         }
         return authenticator
@@ -146,46 +155,46 @@ class Client:
         return encrypted_version
 
     @staticmethod
-    def encrypt_client_id(client_id, aes_key, iv):
+    def encrypt_client_uuid(client_uuid, aes_key, iv):
         """
-        encrypt client ID Padded
-        :param client_id:
+        encrypt client UUID Padded
+        :param client_uuid:
         :param aes_key: symmetric sey shared with the message server
         :param iv: initial vector
-        :return: encrypted Client ID
+        :return: encrypted Client UUID
         """
         cipher = AES.new(aes_key, AES.MODE_CBC, iv)
-        encrypted_client_id = cipher.encrypt(pad(bytes.fromhex(client_id), AES.block_size))
-        return encrypted_client_id
+        encrypted_client_uuid = cipher.encrypt(pad(bytes.fromhex(client_uuid), AES.block_size))
+        return encrypted_client_uuid
 
     @staticmethod
-    def encrypt_server_id(server_id, aes_key, iv):
+    def encrypt_server_uuid(server_uuid, aes_key, iv):
         """
-        encrypt server ID Padded
-        :param server_id:
+        encrypt server UUID Padded
+        :param server_uuid:
         :param aes_key: symmetric key shared with the message server
         :param iv: initial vector
-        :return: encrypt server ID
+        :return: encrypt server UUID
         """
         cipher = AES.new(aes_key, AES.MODE_CBC, iv)
-        encrypted_server_id = cipher.encrypt(pad(server_id, AES.block_size))
-        return encrypted_server_id
+        encrypted_server_uuid = cipher.encrypt(pad(server_uuid, AES.block_size))
+        return encrypted_server_uuid
 
     @staticmethod
     def registration_request():
         """
         Create registration request to Authenticator Server
-        :return: packed request
+        :return: packed request (bytes) and password (str)
         """
         # Get name and password from user
         name, password = get_client_info()
-        # Fictive Client ID (Used in unpacking)
-        client_id = "00000000000000000000000000000000"
+        # Fictive Client UUID (Used in unpacking)
+        client_uuid = "00000000000000000000000000000000"
         # Create the payload
         payload = {'name': name, 'password': password}
         # Create the request to send
-        request = Request(client_id, VERSION, REGISTRATION_REQUEST_CODE, payload)
-        return request.pack()
+        request = Request(client_uuid, VERSION, REGISTRATION_REQUEST_CODE, payload)
+        return request.pack(), password
 
     @classmethod
     def registration_response(cls, packed_response, packed_request):
@@ -200,15 +209,15 @@ class Client:
         # registration failed
         if response.response_code == REGISTRATION_FAILED:
             print(SERVER_ERROR_MESSAGE)
-            return None
+            exit(REGISTRATION_FAILED)
         # response.response_code == REGISTRATION_SUCCEED
         else:
             # unpack request to extract the values
             request = Request.unpack(packed_request)
             name = request.payload['name']
-            client_id = response.payload['client_id']
+            client_uuid = response.payload['client_uuid']
             # create initialized client instance
-            client = cls(name, client_id)
+            client = cls(name, client_uuid)
             # store the client info into file.
             client.store_client_info()
             return client
@@ -222,12 +231,12 @@ class Client:
         nonce = get_random_bytes(NONCE_SIZE)
         # create the payload
         payload = {
-            # TODO: server_id shouldn't exist in the code.
-            'server_id': "64f3f63985f04beb81a0e43321880182",
+            # TODO: server_uuid HARDCODED.
+            'server_uuid': "64f3f63985f04beb81a0e43321880182",
             'nonce': nonce
         }
         # create request to send.
-        request = Request(self.id, VERSION, SYMMETRIC_REQUEST_CODE, payload)
+        request = Request(self.uuid, VERSION, SYMMETRIC_REQUEST_CODE, payload)
         return request.pack()
 
     def symmetric_key_response(self, packed_response, packed_request):
@@ -251,13 +260,13 @@ class Client:
             return aes_key, ticket
         else:
             print(SERVER_ERROR_MESSAGE)
-            return None, None
+            exit(GENERAL_RESPONSE_ERROR)
 
     def decrypt_encrypted_key(self, encrypted_key):
         """
         decrypt encrypted key received from the authenticator server due to symmetric key request
         :param encrypted_key: encrypted_key received from the authenticator server
-        :return: aes key and nonce
+        :return: aes key and nonce, if decryption exit
         """
         # extract info from the encrypted key
         iv = encrypted_key['encrypted_key_iv']
@@ -265,10 +274,15 @@ class Client:
         encrypted_nonce = encrypted_key['nonce']
         # decrypt the aes key
         cipher = AES.new(bytes.fromhex(self.key), AES.MODE_CBC, iv)
-        aes_key = unpad(cipher.decrypt(encrypted_aes_key), AES.block_size)
+        try:
+            aes_key = unpad(cipher.decrypt(encrypted_aes_key), AES.block_size)
+        except ValueError:
+            print("Incorrect Password")
+            exit(GENERAL_RESPONSE_ERROR)
         # decrypt the nonce
         cipher = AES.new(bytes.fromhex(self.key), AES.MODE_CBC, iv)
         nonce = unpad(cipher.decrypt(encrypted_nonce), AES.block_size)
+        # There is alert reference before assignment in (PYCHARM) - however the program exit if assignment fails.
         return aes_key, nonce
 
     def message_request(self, aes_key, msg_server_client):
@@ -287,7 +301,7 @@ class Client:
             # create the payload header
             payload = {'message_size': len(encrypted_message), 'message_iv': iv}
             # header of message request to send to message server
-            request = Request(self.id, VERSION, SEND_MESSAGE_REQUEST_CODE, payload)
+            request = Request(self.uuid, VERSION, SEND_MESSAGE_REQUEST_CODE, payload)
             packed_request = request.pack()
             msg_server_client.send(packed_request)
             # send the encrypted message
@@ -362,6 +376,31 @@ class Client:
         response = Response.unpack(packed_response)
         return response.response_code
 
+    @staticmethod
+    def authorization_process(auth_server_socket):
+        """
+        grant access to user if registered, otherwise start registration process
+        :param auth_server_socket: auth_server_socket
+        :return: Client | if process fails return None, otherwise return Client
+        """
+        # Load client info if existed.
+        client = Client.load_client_info(INFO_FILENAME)
+        # If client is new, send registration request.
+        if client is None:
+            print("Registration to System")
+            # Send Registration Request to Authentication Server.
+            packed_request, password = Client.registration_request()
+            auth_server_socket.send(packed_request)
+            packed_response = auth_server_socket.recv(BUFFER_SIZE)
+            client = Client.registration_response(packed_response, packed_request)
+            # registration failed
+            if client is None:
+                return None
+            # set the password
+            client.set_key(password)
+            clear_console()
+        return client
+
 
 def parse_servers_file(endpoint_file):
     """
@@ -369,7 +408,7 @@ def parse_servers_file(endpoint_file):
         authenticator_ip:authenticator_port
         message_ip:message_port
     :param endpoint_file: file
-    :return: two endpoint, (authenticator ip, authenticator port) and (message ip, message port)
+    :return: two endpoint, (authenticator ip, authenticator port)encrypted_message: and (message ip, message port)
     """
     # Initialize variables for authentication server and message server IP and port
     auth_server_ip = ""
@@ -405,30 +444,60 @@ def connect_to_server(endpoint):
         return client
     except ConnectionRefusedError:
         print("Connection Failed.")
+        exit(GENERAL_RESPONSE_ERROR)
+
+
+def connect_to_authentication_server(endpoint):
+    """
+    Establish connection with provided endpoint
+    :param endpoint: endpoint is tuple (ip, port)
+    :return:
+    """
+    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        client.connect(endpoint)
+        return client
+    except ConnectionRefusedError:
+        try:
+            client.connect((endpoint[0], DEFAULT_AUTHENTICATION_PORT))
+            return client
+        except ConnectionRefusedError:
+            print("Connection Failed.")
+            exit(GENERAL_RESPONSE_ERROR)
+
+
+def renew_session_prompt():
+    """
+    Ask user if renew session needed.
+    :return: True if user want to renew, otherwise False
+    """
+    tries = 1
+    prompt = input("Would you like to renew the connection with the message server(Y/n)?").lower()
+    while not prompt == 'y' and not prompt == 'n':
+        if tries > MAX_TRIES:
+            return False
+        tries += 1
+        prompt = input(f"Try again {tries}/{MAX_TRIES}, one of the options(Y/n)? ").lower()
+    if prompt == 'y':
+        return True
+    return False
 
 
 def main():
     # Parse Servers endpoints.
     auth_server_endpoint, message_server_endpoint = parse_servers_file(SERVERS_FILENAME)
     # Establishing connection with Authentication Server.
-    auth_server_client = connect_to_server(auth_server_endpoint)
-    if auth_server_client is None:
+    auth_server_socket = connect_to_authentication_server(auth_server_endpoint)
+    # check if connection fails.
+    if auth_server_socket is None:
         print(SERVER_ERROR_MESSAGE)
         return
-    # Load client info if existed.
-    client = Client.load_client_info(INFO_FILENAME)
-    # If client is new, send registration request.
+
+    # login or registration process
+    client = Client.authorization_process(auth_server_socket)
+    # login and registration failed:
     if client is None:
-        print("Registration to System")
-        # Send Registration Request to Authentication Server.
-        packed_request = Client.registration_request()
-        auth_server_client.send(packed_request)
-        packed_response = auth_server_client.recv(BUFFER_SIZE)
-        client = Client.registration_response(packed_response, packed_request)
-        # registration error
-        if client is None:
-            return
-        clear_console()
+        return
 
     while True:
         print(f"Hi {client.name}!")
@@ -437,10 +506,13 @@ def main():
         client.set_key(password)
         # Send symmetric key request to Authentication Server.
         packed_request = client.symmetric_key_request()
-        auth_server_client.send(packed_request)
-        packed_response = auth_server_client.recv(BUFFER_SIZE)
+        auth_server_socket.send(packed_request)
+        packed_response = auth_server_socket.recv(BUFFER_SIZE)
         aes_key, ticket = client.symmetric_key_response(packed_response, packed_request)
-        auth_server_client.close()
+        # Check error occur
+        if aes_key is None:
+            return
+        auth_server_socket.close()
 
         # Connect to the message server.
         msg_server_client = connect_to_server(message_server_endpoint)
@@ -459,15 +531,9 @@ def main():
         # sending messages
         end_code = client.message_request(aes_key, msg_server_client)
 
-        if end_code == SESSION_EXPIRED:
-            prompt = input("Would you like to renew the connection with the message server(Y/n)?").lower()
-            while not prompt == 'y' and not prompt == 'n':
-                prompt = input("Try again, one of the options(Y/n)?").lower()
-            if prompt == 'y':
-                auth_server_client = connect_to_server(auth_server_endpoint)
-                continue
-            else:
-                break
+        if end_code == SESSION_EXPIRED and renew_session_prompt():
+            auth_server_socket = connect_to_authentication_server(auth_server_endpoint)
+            continue
         else:
             break
 

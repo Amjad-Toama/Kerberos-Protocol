@@ -3,6 +3,7 @@ from Crypto.Random import get_random_bytes
 from Crypto.Util.Padding import pad, unpad
 from datetime import datetime, timedelta
 from Utilization import *
+import base64
 
 def main():
     """Start: Encryption and Decryption"""
@@ -33,9 +34,29 @@ def main():
     # print(current_time)
     """End: Encyrpting time"""
 
-    message = b''
-    message += get_random_bytes(1)
-    print(type(message))
+    # password = "amjad123"
+    # h = SHA256.new()
+    # h.update(password.encode('utf-8'))
+    # key = h.digest()
+    # iv = get_random_bytes(16)
+    # plain_text = "credit number 1234 5678 1234 1234"
+    #
+    # cipher = AES.new(key, AES.MODE_CBC, iv)
+    # encrypted_text = cipher.encrypt(pad(plain_text.encode('utf-8'), AES.block_size))
+    #
+    # password = "amjad123"
+    # h = SHA256.new()
+    # h.update(password.encode('utf-8'))
+    # key = h.digest()
+    # cipher = AES.new(key, AES.MODE_CBC, iv)
+    # print(unpad(cipher.decrypt(encrypted_text), AES.block_size).decode(('utf-8')))
+
+    key = get_random_bytes(32)
+    print(key)
+    key_b64 = base64.b64encode(key).decode()
+    print(len(key_b64))
+    print(base64.b64decode(key_b64))
+
 
 if __name__ == '__main__':
     main()

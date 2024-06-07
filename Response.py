@@ -61,10 +61,10 @@ class Response:
         if self.response_code == REGISTRATION_SUCCEED:
             '''
             registration succeed
-                client_id: 16 bytes
+                client_uuid: 16 bytes
             '''
-            packed_client_id = bytes.fromhex(self.payload['client_id'])
-            packed_payload = packed_client_id
+            packed_client_uuid = bytes.fromhex(self.payload['client_uuid'])
+            packed_payload = packed_client_uuid
             packed_payload_size = struct.pack('I', len(packed_payload))
         elif self.response_code == SEND_SYMMETRIC_KEY:
             '''
@@ -77,17 +77,17 @@ class Response:
                     aes_key:   48 bytes
             ticket       :  137 bytes (total)
                     version                  : 1 bytes
-                    client_id                : 16 bytes
-                    server_id                : 16 bytes
+                    client_uuid              : 16 bytes
+                    server_uuid              : 16 bytes
                     creation_time            : 8 bytes
                     ticket_iv                : 16 bytes
                     encrypted_aes_key        : 48 bytes
                     encrypted_expiration_time: 32 bytes
             '''
-            packed_client_id = bytes.fromhex(self.payload['client_id'])
+            packed_client_uuid = bytes.fromhex(self.payload['client_uuid'])
             packed_encrypted_key = pack_encrypted_key(self.payload['encrypted_key'])
             packed_ticket = pack_ticket(self.payload['ticket'])
-            packed_payload = packed_client_id + packed_encrypted_key + packed_ticket
+            packed_payload = packed_client_uuid + packed_encrypted_key + packed_ticket
             packed_payload_size = struct.pack('I', len(packed_payload))
         elif self.response_code == REGISTRATION_FAILED:
             '''
@@ -140,11 +140,11 @@ class Response:
         if response_code == REGISTRATION_SUCCEED:
             '''
             registration succeed
-                client_id: 16 bytes
+                client_uuid: 16 bytes
             '''
             payload_size = packed_response[3:7]
-            client_id = packed_response[7:23].hex()
-            payload = {'client_id': client_id}
+            client_uuid = packed_response[7:23].hex()
+            payload = {'client_uuid': client_uuid}
         elif response_code == SEND_SYMMETRIC_KEY:
             '''
             sending encrypted symmetric key
@@ -156,8 +156,8 @@ class Response:
                     aes_key:   48 bytes
             ticket       :  137 bytes (total)
                     version                  : 1 bytes
-                    client_id                : 16 bytes
-                    server_id                : 16 bytes
+                    client_uuid              : 16 bytes
+                    server_uuid              : 16 bytes
                     creation_time            : 8 bytes
                     ticket_iv                : 16 bytes
                     encrypted_aes_key        : 48 bytes
@@ -165,13 +165,13 @@ class Response:
             '''
             # unsigned integer (4 bytes)
             payload_size = struct.unpack('I', packed_response[3:7])
-            client_id = packed_response[7:23].hex()
+            client_uuid = packed_response[7:23].hex()
             packed_encrypted_key = packed_response[23:103]
             packed_ticket = packed_response[103:240]
             encrypted_key = unpack_encrypted_key(packed_encrypted_key)
             ticket = unpack_ticket(packed_ticket)
             # create the payload
-            payload = {'client_id': client_id, 'encrypted_key': encrypted_key, 'ticket': ticket}
+            payload = {'client_uuid': client_uuid, 'encrypted_key': encrypted_key, 'ticket': ticket}
         elif response_code == REGISTRATION_FAILED:
             '''
             registration failed - no payload -> size = 0
@@ -198,6 +198,6 @@ class Response:
             payload_size = 0
         else:
             raise ValueError(f"Invalid response code: {response_code}")
-        payload_size += 1
+
         # return response instance (initialized)
         return cls(version, response_code, payload)

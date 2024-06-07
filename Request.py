@@ -18,8 +18,8 @@ class Request:
 
     ################## Attributes ##################
 
-    client_id   :   hex
-        client id of the request sender.
+    client_uuid   :   hex
+        client uuid of the request sender.
 
     version     :   int
         protocol version.
@@ -38,8 +38,8 @@ class Request:
     def unpack(cls, packed_request) : return request
         unpack the request from bytes to the structure of original request.
     """
-    def __init__(self, client_id, version, request_code, payload):
-        self.client_id = client_id
+    def __init__(self, client_uuid, version, request_code, payload):
+        self.client_uuid = client_uuid
         self.version = version
         self.request_code = request_code
         self.payload = payload
@@ -51,7 +51,7 @@ class Request:
         """
         # Pack the request components into bytes (request header).
         # from hex representation to bytes
-        packed_client_id = bytes.fromhex(self.client_id)
+        packed_client_uuid = bytes.fromhex(self.client_uuid)
         # unsigned integer (1 bytes)
         packed_version = struct.pack('B', self.version)
         # unsigned integer (2 bytes)
@@ -74,27 +74,27 @@ class Request:
         elif self.request_code == SYMMETRIC_REQUEST_CODE:
             '''
             symmetric request code
-                server_id: 16 bytes
-                nonce    : 8 bytes
+                server_uuid: 16 bytes
+                nonce      : 8 bytes
             '''
-            packed_server_id = bytes.fromhex(self.payload['server_id'])
+            packed_server_uuid = bytes.fromhex(self.payload['server_uuid'])
             packed_nonce = self.payload['nonce']
             # unsigned integer (4 bytes)
-            packed_payload_size = struct.pack('I', len(packed_server_id) + len(packed_nonce))
+            packed_payload_size = struct.pack('I', len(packed_server_uuid) + len(packed_nonce))
             # concatenate packed payload content
-            packed_payload = packed_server_id + packed_nonce
+            packed_payload = packed_server_uuid + packed_nonce
         elif self.request_code == SEND_TICKET_REQUEST_CODE:
             '''
             authenticator: 128 bytes (total)
                 authenticator_iv       : 16 bytes
                 encrypted_version      : 16 bytes
-                encrypted_client_id    : 32 bytes
-                encrypted_server_id    : 32 bytes
+                encrypted_client_uuid  : 32 bytes
+                encrypted_server_uuid  : 32 bytes
                 encrypted_creation_time: 32 bytes
             ticket: 137 bytes (total)
                 version                  : 1 bytes
-                client_id                : 16 bytes
-                server_id                : 16 bytes
+                client_uuid              : 16 bytes
+                server_uuid              : 16 bytes
                 creation_time            : 8 bytes
                 ticket_iv                : 16 bytes
                 encrypted_aes_key        : 48 bytes
@@ -114,7 +114,7 @@ class Request:
         else:
             raise ValueError("Invalid request code.")
         # concatenate packed request content
-        packed_request = packed_client_id + packed_version + packed_request_code + packed_payload_size + packed_payload
+        packed_request = packed_client_uuid + packed_version + packed_request_code + packed_payload_size + packed_payload
         return packed_request
 
     @classmethod
@@ -127,14 +127,14 @@ class Request:
 
         '''
         Request structure:
-            client_id   : 16 bytes
+            client_uuid : 16 bytes
             version     : 1 bytes
             request_code: 2 bytes
             payload_size: 4 bytes
             payload isn't constant, see each condition
         '''
         # unpack the header of packed request
-        client_id = packed_request[:16].hex()
+        client_uuid = packed_request[:16].hex()
         # unsigned integer (1 bytes)
         version = struct.unpack('B', packed_request[16:17])[0]
         # unsigned integer (2 bytes)
@@ -152,24 +152,24 @@ class Request:
             payload = {'name': name, 'password': password}
         elif request_code == SYMMETRIC_REQUEST_CODE:
             '''
-            server_id: 16 bytes
-            nonce    : 8 bytes
+            server_uuid: 16 bytes
+            nonce      : 8 bytes
             '''
-            server_id = packed_request[23:39].hex()
+            server_uuid = packed_request[23:39].hex()
             nonce = packed_request[39:47]
-            payload = {'server_id': server_id, 'nonce': nonce}
+            payload = {'server_uuid': server_uuid, 'nonce': nonce}
         elif request_code == SEND_TICKET_REQUEST_CODE:
             '''
             authenticator: 128 bytes (total)
                 authenticator_iv       : 16 bytes
                 encrypted_version      : 16 bytes
-                encrypted_client_id    : 32 bytes
-                encrypted_server_id    : 32 bytes
+                encrypted_client_uuid  : 32 bytes
+                encrypted_server_uuid  : 32 bytes
                 encrypted_creation_time: 32 bytes
             ticket: 137 bytes (total)
                 version                  : 1 bytes
-                client_id                : 16 bytes
-                server_id                : 16 bytes
+                client_uuid              : 16 bytes
+                server_uuid              : 16 bytes
                 creation_time            : 8 bytes
                 ticket_iv                : 16 bytes
                 encrypted_aes_key        : 48 bytes
@@ -193,4 +193,4 @@ class Request:
             raise ValueError("Invalid request code.")
         payload_size += 1
         # return request instance (initialized)
-        return cls(client_id, version, request_code, payload)
+        return cls(client_uuid, version, request_code, payload)

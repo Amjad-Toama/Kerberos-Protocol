@@ -1,3 +1,4 @@
+import base64
 import socket
 import threading
 from Request import *
@@ -5,6 +6,7 @@ from Response import *
 from Utilization import *
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
+from fileValidity import *
 
 
 class MessageServer:
@@ -13,19 +15,19 @@ class MessageServer:
 
     ################## Attributes ##################
 
-    server_ip : str
+    ip : str
         The IP that the server on.
 
-    server_port : int
+    port : int
         The port the server listening on.
 
-    server_name : str
+    name : str
         Message server name
 
-    server_id : str
+    uuid : str
         Server uuid
 
-    symmetric_key : str
+    key : str
         Symmetric key shared between message server and authentication server
 
     #################### Methods ###################
@@ -46,16 +48,16 @@ class MessageServer:
         endpoint_file_path file.
         file structure:
             ip:port
-            server_name
-            server_uuid
+            name
+            uuid
             symmetric key between Message server and the Authentication Server
         :param endpoint_file_path: File include the information to initialize the Message server.
         """
-        self.server_ip = None
-        self.server_port = None
-        self.server_name = None
-        self.server_id = None
-        self.symmetric_key = None
+        self.ip = None
+        self.port = None
+        self.name = None
+        self.uuid = None
+        self.key = None
         self.parse_endpoint_file(endpoint_file_path)
 
     ###################################################################
@@ -64,29 +66,29 @@ class MessageServer:
     # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
     ###################################################################
 
-    def parse_endpoint_file(self, endpoint_file_path):
+    def parse_endpoint_file(self, filename):
         """
         Parse the information file and initialize the message server details
         file structure:
             ip:port
-            server_name
-            server_uuid
+            name
+            uuid
             symmetric key between Message server and the Authentication Server
-        :param endpoint_file_path: message server details to initialize.
+        :param filename: message server details to initialize.
         :return:
         """
         # Open the file
-        try:
-            with open(endpoint_file_path, "r") as file:
+        if is_valid_msg_file(filename):
+            with open(filename, "r") as file:
                 lines = file.readlines()
                 # Parse details line by line
-                self.server_ip, self.server_port = lines[0].strip().split(":")
-                self.server_port = int(self.server_port)
-                self.server_name = lines[1].strip()
-                self.server_id = lines[2].strip()
-                self.symmetric_key = lines[3].strip()
-        except FileNotFoundError:
-            print(f"{endpoint_file_path} file not found.")
+                self.ip, self.port = lines[0].strip().split(":")
+                self.port = int(self.port)
+                self.name = lines[1].strip()
+                self.uuid = lines[2].strip()
+                self.key = base64.b64decode(lines[3].strip())
+        else:
+            print(f"Error occur in {filename} file.")
 
     ###################################################################
     # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
@@ -122,11 +124,10 @@ class MessageServer:
         :param encrypted_ticket: a ticket from Authenticator Server.
         :return: decrypted ticket
         """
-        key = bytes.fromhex(self.symmetric_key)
         ticket_iv = encrypted_ticket['ticket_iv']
-        cipher = AES.new(key, AES.MODE_CBC, ticket_iv)
+        cipher = AES.new(self.key, AES.MODE_CBC, ticket_iv)
         aes_key = unpad(cipher.decrypt(encrypted_ticket['aes_key']), AES.block_size)
-        expiration_time = decrypt_time(encrypted_ticket['expiration_time'], key, ticket_iv)
+        expiration_time = decrypt_time(encrypted_ticket['expiration_time'], self.key, ticket_iv)
         # update ticket keys with decrypted values
         encrypted_ticket['aes_key'] = aes_key
         encrypted_ticket['expiration_time'] = expiration_time
@@ -147,12 +148,12 @@ class MessageServer:
         # Decrypt the version
         version = int.from_bytes(unpad(cipher.decrypt(encrypted_authenticator['version']), AES.block_size),
                                  byteorder='big')
-        # Decrypt client_id
+        # Decrypt client_uuid
         cipher = AES.new(aes_key, AES.MODE_CBC, iv)
-        client_id = unpad(cipher.decrypt(encrypted_authenticator['client_id']), AES.block_size).hex()
-        # Decrypt server_id
+        client_uuid = unpad(cipher.decrypt(encrypted_authenticator['client_uuid']), AES.block_size).hex()
+        # Decrypt uuid
         cipher = AES.new(aes_key, AES.MODE_CBC, iv)
-        server_id = unpad(cipher.decrypt(encrypted_authenticator['server_id']), AES.block_size).hex()
+        uuid = unpad(cipher.decrypt(encrypted_authenticator['server_uuid']), AES.block_size).hex()
         # Decrypt creation time
         encrypted_creation_time = encrypted_authenticator['creation_time']
         creation_time = decrypt_time(encrypted_creation_time, aes_key, iv)
@@ -160,8 +161,8 @@ class MessageServer:
         authenticator = {
             'authenticator_iv': iv,
             'version': version,
-            'client_id': client_id,
-            'server_id': server_id,
+            'client_uuid': client_uuid,
+            'server_uuid': uuid,
             'creation_time': creation_time
         }
         return authenticator
@@ -180,7 +181,7 @@ class MessageServer:
         if response_code == GENERAL_RESPONSE_ERROR:
             client.close()
         else:
-            # response_code == SYMMETRIC_KEY_RECEIVED
+            # response_code == key_RECEIVED
             MessageServer.receiving_messages(client, ticket['aes_key'], ticket['expiration_time'])
 
     @staticmethod
@@ -207,7 +208,7 @@ class MessageServer:
                 # Extract important details.
                 message_length = request.payload['message_size']
                 message_iv = request.payload['message_iv']
-                client_id = request.client_id
+                client_uuid = request.client_uuid
                 # Receive messages support any message length
                 encrypted_message = receive_long_encrypted_message(client, message_length)
                 # Message content decryption
@@ -224,7 +225,7 @@ class MessageServer:
                 if msg == 'exit':
                     return
                 # print the message
-                print(f"{client_id}: {msg}")
+                print(f"{client_uuid}: {msg}")
                 packed_response = Response(VERSION, MESSAGE_RECEIVED, {}).pack()
                 client.send(packed_response)
             else:
@@ -237,7 +238,7 @@ def main():
     msg_srv = MessageServer()
     # bind a socket to bind incoming connection.
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.bind((msg_srv.server_ip, msg_srv.server_port))
+    server.bind((msg_srv.ip, msg_srv.port))
     print("Waiting to Connection...")
     while True:
         server.listen()

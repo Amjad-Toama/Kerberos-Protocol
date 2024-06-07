@@ -54,8 +54,8 @@ def pack_ticket(ticket):
     '''
         ticket       :  137 bytes (total)
             version                  : 1 bytes
-            client_id                : 16 bytes
-            server_id                : 16 bytes
+            client_uuid              : 16 bytes
+            server_uuid              : 16 bytes
             creation_time            : 8 bytes
             ticket_iv                : 16 bytes
             encrypted_aes_key        : 48 bytes
@@ -64,14 +64,14 @@ def pack_ticket(ticket):
     # extract values from ticket
     packed_version = struct.pack('B', ticket['version'])
     # convert from hex representation to bytes
-    packed_client_id = bytes.fromhex(ticket['client_id'])
-    packed_server_id = bytes.fromhex(ticket['server_id'])
+    packed_client_uuid = bytes.fromhex(ticket['client_uuid'])
+    packed_server_uuid = bytes.fromhex(ticket['server_uuid'])
     # convert unsigned integer (4 bytes) to bytes
     packet_creation_time = struct.pack('Q', int(ticket['creation_time'].timestamp()))
     packet_ticket_iv = ticket['ticket_iv']
     packed_aes_key = ticket['aes_key']
     packed_expiration_time = ticket['expiration_time']
-    packed_ticket = (packed_version + packed_client_id + packed_server_id + packet_creation_time + packet_ticket_iv
+    packed_ticket = (packed_version + packed_client_uuid + packed_server_uuid + packet_creation_time + packet_ticket_iv
                      + packed_aes_key + packed_expiration_time)
     return packed_ticket
 
@@ -85,8 +85,8 @@ def unpack_ticket(packed_ticket):
     '''
     ticket: 137 bytes (total)
                 version                  : 1 bytes
-                client_id                : 16 bytes
-                server_id                : 16 bytes
+                client_uuid              : 16 bytes
+                server_uuid              : 16 bytes
                 creation_time            : 8 bytes
                 ticket_iv                : 16 bytes
                 encrypted_aes_key        : 48 bytes
@@ -95,8 +95,8 @@ def unpack_ticket(packed_ticket):
     # convert bytes to unsigned integer (1 bytes)
     version = struct.unpack('B', packed_ticket[:1])[0]
     # convert bytes to hex
-    client_id = packed_ticket[1:17].hex()
-    server_id = packed_ticket[17:33].hex()
+    client_uuid = packed_ticket[1:17].hex()
+    server_uuid = packed_ticket[17:33].hex()
     # convert bytes to datetime type
     creation_time = datetime.fromtimestamp(struct.unpack('Q', packed_ticket[33:41])[0])
     ticket_iv = packed_ticket[41:57]
@@ -105,8 +105,8 @@ def unpack_ticket(packed_ticket):
     # create ticket
     ticket = {
         'version': version,
-        'client_id': client_id,
-        'server_id': server_id,
+        'client_uuid': client_uuid,
+        'server_uuid': server_uuid,
         'creation_time': creation_time,
         'ticket_iv': ticket_iv,
         'aes_key': aes_key,
@@ -125,16 +125,16 @@ def pack_encrypted_authenticator(authenticator):
     authenticator: 128 bytes (total)
         authenticator_iv       : 16 bytes
         encrypted_version      : 16 bytes
-        encrypted_client_id    : 32 bytes
-        encrypted_server_id    : 32 bytes
+        encrypted_client_uuid  : 32 bytes
+        encrypted_server_uuid  : 32 bytes
         encrypted_creation_time: 32 bytes
     '''
     packed_authenticator_iv = authenticator['authenticator_iv']
     packed_version = authenticator['version']
-    packed_client_id = authenticator['client_id']
-    packed_server_id = authenticator['server_id']
+    packed_client_uuid = authenticator['client_uuid']
+    packed_server_uuid = authenticator['server_uuid']
     packed_creation_time = authenticator['creation_time']
-    packed_authenticator = (packed_authenticator_iv + packed_version + packed_client_id + packed_server_id +
+    packed_authenticator = (packed_authenticator_iv + packed_version + packed_client_uuid + packed_server_uuid +
                             packed_creation_time)
     return packed_authenticator
 
@@ -150,22 +150,22 @@ def unpack_encrypted_authenticator(packed_authenticator):
     authenticator: 128 bytes (total)
         authenticator_iv       : 16 bytes
         encrypted_version      : 16 bytes
-        encrypted_client_id    : 32 bytes
-        encrypted_server_id    : 32 bytes
+        encrypted_client_uuid  : 32 bytes
+        encrypted_server_uuid  : 32 bytes
         encrypted_creation_time: 32 bytes
     '''
     # slicing packet
     authenticator_iv = packed_authenticator[:16]
     version = packed_authenticator[16:32]
-    client_id = packed_authenticator[32:64]
-    server_id = packed_authenticator[64:96]
+    client_uuid = packed_authenticator[32:64]
+    server_uuid = packed_authenticator[64:96]
     encrypted_creation_time = packed_authenticator[96:128]
     # create encrypted_authenticator
     encrypted_authenticator = {
         'authenticator_iv': authenticator_iv,
         'version': version,
-        'client_id': client_id,
-        'server_id': server_id,
+        'client_uuid': client_uuid,
+        'server_uuid': server_uuid,
         'creation_time': encrypted_creation_time
     }
     return encrypted_authenticator
