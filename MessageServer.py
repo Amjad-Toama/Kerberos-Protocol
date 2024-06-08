@@ -1,12 +1,16 @@
-import base64
 import socket
 import threading
+from datetime import timedelta
+
 from Request import *
 from Response import *
 from Utilization import *
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
 from fileValidity import *
+
+AUTHENTICATOR_LIFETIME = 1 / 12     # lifetime of authenticator : 5 minutes
+MESSAGE_SERVER_FILENAME = 'msg.info'
 
 
 class MessageServer:
@@ -42,7 +46,7 @@ class MessageServer:
         Decrypt the authenticator received from the user.
 
     """
-    def __init__(self, endpoint_file_path="msg.info"):
+    def __init__(self, endpoint_file_path=MESSAGE_SERVER_FILENAME):
         """
         Create a Message Server instance, initialize the attributes according to the information provided in
         endpoint_file_path file.
@@ -78,7 +82,7 @@ class MessageServer:
         :return:
         """
         # Open the file
-        if is_valid_msg_file(filename):
+        if filename == MESSAGE_SERVER_FILENAME and is_valid_msg_file(filename):
             with open(filename, "r") as file:
                 lines = file.readlines()
                 # Parse details line by line
@@ -110,7 +114,7 @@ class MessageServer:
         # Decrypt authenticator values
         authenticator = MessageServer.decrypt_authenticator(ticket['aes_key'], payload['authenticator'])
         # Check Potential of replay attack
-        if ticket['expiration_time'] <= datetime.now():
+        if ticket['expiration_time'] <= datetime.now() or not MessageServer.is_valid_authenticator(authenticator, ticket):
             packed_response = Response(VERSION, GENERAL_RESPONSE_ERROR, None).pack()
             ticket = authenticator = None
         # The request is legal
@@ -153,7 +157,7 @@ class MessageServer:
         client_uuid = unpad(cipher.decrypt(encrypted_authenticator['client_uuid']), AES.block_size).hex()
         # Decrypt uuid
         cipher = AES.new(aes_key, AES.MODE_CBC, iv)
-        uuid = unpad(cipher.decrypt(encrypted_authenticator['server_uuid']), AES.block_size).hex()
+        server_uuid = unpad(cipher.decrypt(encrypted_authenticator['server_uuid']), AES.block_size).hex()
         # Decrypt creation time
         encrypted_creation_time = encrypted_authenticator['creation_time']
         creation_time = decrypt_time(encrypted_creation_time, aes_key, iv)
@@ -162,10 +166,23 @@ class MessageServer:
             'authenticator_iv': iv,
             'version': version,
             'client_uuid': client_uuid,
-            'server_uuid': uuid,
+            'server_uuid': server_uuid,
             'creation_time': creation_time
         }
         return authenticator
+
+    @staticmethod
+    def is_valid_authenticator(authenticator, ticket):
+        """
+        check if the authenticator session is valid, to prevent replay attack.
+        :param authenticator: dictionary - client authenticator.
+        :param ticket: dictionary - server ticket
+        :return: boolean - true if authenticator and ticket values compatible and authenticator not expired.
+        """
+        return ((authenticator['version'] == ticket['version'])
+                and (authenticator['client_uuid'] == ticket['client_uuid'])
+                and (authenticator['server_uuid'] == ticket['server_uuid'])
+                and (authenticator['creation_time'] < datetime.now() + timedelta(hours=AUTHENTICATOR_LIFETIME)))
 
     def provide_service(self, client):
         """
@@ -223,6 +240,8 @@ class MessageServer:
                     client.send(packed_response)
                     return
                 if msg == 'exit':
+                    packed_response = Response(VERSION, MESSAGE_RECEIVED, {}).pack()
+                    client.send(packed_response)
                     return
                 # print the message
                 print(f"{client_uuid}: {msg}")

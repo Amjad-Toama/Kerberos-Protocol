@@ -1,3 +1,4 @@
+import os.path
 import socket
 import threading
 from datetime import timedelta
@@ -29,8 +30,22 @@ IV_LENGTH = 16
 VERSION = 24
 TICKET_TIME_DURATION = 1
 
+CLIENTS_FILENAME = 'clients'
+MESSAGE_SERVER_FILENAME = 'msg.info'
+PORT_FILENAME = 'port.info'
+
+
 
 class Client:
+    """
+    Client class used by Authentication Server, to manage system clients
+
+    ################## Attributes ##################
+     uuid           :   str in hex representation - client uuid
+     name           :   str - client name
+     password_hash  :   bytes - client password hash 32 bytes
+     last_seen      :   datetime - last seen of client in system
+    """
     def __init__(self, uuid, name, password_hash, last_seen):
         self.uuid, self.name, self.password_hash, self.last_seen = uuid, name, password_hash, last_seen
 
@@ -38,10 +53,25 @@ class Client:
         return f"{self.uuid}:{self.name}:{self.password_hash}:{self.last_seen}"
 
     def set_last_seen(self, now):
+        """
+        set client last seen
+        :param now: datetime type
+        :return:
+        """
         self.last_seen = now
 
 
 class Server:
+    """
+    Server class used by Authentication Server, to manage system servers
+
+    ################## Attributes ##################
+     uuid           :   str in hex representation - client uuid
+     name           :   str - client name
+     key            :   bytes - symmetric key between the registered server and the Authentication Server
+     ip             :   str - server ip
+     port           :   int - server port
+    """
     def __init__(self, ip, port, name, uuid, key):
         self.ip, self.port, self.name, self.uuid, self.key = ip, port, name, uuid, key
 
@@ -50,9 +80,22 @@ class Server:
 
 
 class AuthenticationServer:
+    """
+    Authentication Server allow registered client and servers connect and securely communicate.
+    By having symmetric keys of servers and clients, AS send client session key and ticket to be passed to server,
+    in order to make them communicate.
+
+    ################## Attributes ##################
+    ip                  :   str - host ip
+    port                :   int - AS port to listen on
+    endpoint_filename   :   str - AS endpoint file
+    clients_filename    :   str - registered clients.
+    clients             :   dict - store clients details in memory which contain Client objects.
+    msg_server          :   Server - the message server.
+    """
     def __init__(self):
         # Loopback IP Address
-        self.ip_address = "127.0.0.1"
+        self.ip = "127.0.0.1"
         # Default port number
         self.port = 1256
         # Endpoint and Clients file path
@@ -66,37 +109,70 @@ class AuthenticationServer:
     ###################################################################
 
     def load_endpoint(self, filename):
-        if is_valid_port_file(filename):
+        """
+        load server endpoint from filename
+        :param filename: filename contain networking details.
+        :return:
+        """
+        # check if port file is valid.
+        if filename == PORT_FILENAME and is_valid_port_file(filename):
             self.endpoint_filename = filename
+            # store port number
             with open(filename) as file:
                 self.port = int(file.read().strip())
+        # in case of port file error use default port.
         else:
             print(f"Something went wrong with {filename} - Using default port {self.port}")
 
     def load_clients_list(self, filename):
-        self.clients_filename = filename
-        if is_valid_file_to_open(filename, "r"):
+        """
+        load clients entities to memory
+        :param filename: file contain clients details.
+        :return: dict - clients dictionary contain clients details.
+        """
+        # check if clients file open.
+        if filename == CLIENTS_FILENAME and is_valid_file_to_open(filename, "r"):
+            self.clients_filename = filename
             with open(filename, "r") as file:
+                # read file lines
                 lines = file.readlines()
                 self.clients = dict()
+                # parse each line to store client into memory - dict
                 for line in lines:
                     c_details = line.strip().split(':')
+                    # client_uuid:client_name:client_passwordSHA256_hex_last_seen
                     self.clients[c_details[0]] = Client(c_details[0], c_details[1], c_details[2], c_details[3])
             return self.clients
+        # file doesn't exist - create file and empty client dictionary
+        elif not os.path.exists(filename):
+            with open(filename, "w") as file:
+                self.clients_filename = filename
+                self.clients = dict()
+                return self.clients
+        # file error
         else:
             print(f"file error: {filename}")
             exit()
-            
+
     def load_msg_server(self, filename):
-        if is_valid_msg_file(filename):
+        """
+        Load message server details include ip, port, name, symmetric key, server uuid
+        :param filename: file contain message server details
+        :return:
+        """
+        # check if message file is valid.
+        if filename == MESSAGE_SERVER_FILENAME and is_valid_msg_file(filename):
             with open(filename, "r") as file:
                 lines = file.readlines()
+                # parse message server details
                 ip, port = lines[0].strip().split(":")
                 port = int(port)
                 name = lines[1].strip()
                 uuid = lines[2].strip()
+                # key stored in base 64 - stored as bytes in memory.
                 key = base64.b64decode(lines[3].strip())
                 self.msg_server = Server(ip, port, name, uuid, key)
+        # error will halt the system.
         else:
             print(f"file error: {filename}")
             exit()
@@ -337,7 +413,7 @@ class AuthenticationServer:
         :return: socket and address
         """
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        server.bind((self.ip_address, self.port))
+        server.bind((self.ip, self.port))
         server.listen()
         client, addr = server.accept()
         return client, addr
@@ -374,9 +450,9 @@ def provide_service(client, addr, auth_server):
 
 def main():
     auth_server = AuthenticationServer()
-    auth_server.load_endpoint("port.info")
-    auth_server.load_msg_server("msg.info")
-    auth_server.load_clients_list("clients")
+    auth_server.load_endpoint(PORT_FILENAME)
+    auth_server.load_msg_server(MESSAGE_SERVER_FILENAME)
+    auth_server.load_clients_list(CLIENTS_FILENAME)
     print("Waiting to Connection...")
     while True:
         # Listening for connection request

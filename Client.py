@@ -6,8 +6,8 @@ from Request import *
 from Response import *
 from Utilization import *
 
-INFO_FILENAME = "me.info"
 SERVERS_FILENAME = "srv.info"
+CLIENT_FILENAME = "me.info"
 SERVER_ERROR_MESSAGE = "server responded with an error"
 MESSAGE_MAX_BYTES_SIZE = 4
 BITS_PER_BYTE = 8
@@ -73,7 +73,7 @@ class Client:
         :return: Client initialized instance if succeeded, otherwise return None
         """
         # Open the file and read its contents
-        if os.path.exists(filename):
+        if filename == CLIENT_FILENAME and os.path.exists(filename):
             if is_valid_me_info(filename):
                 with open(filename, "r") as file:
                     lines = file.readlines()
@@ -88,13 +88,13 @@ class Client:
 
     def store_client_info(self):
         """
-        Create info file "me.info" with the structure:
+        Create info file CLIENT_FILENAME with the structure:
             client_name
             client_uuid
         :return:
         """
         try:
-            with open("me.info", "w") as file:
+            with open(CLIENT_FILENAME, "w") as file:
                 # Write the info to the file
                 file.write(self.name + "\n")
                 file.write(self.uuid + "\n")
@@ -129,7 +129,8 @@ class Client:
         # encrypt values
         encrypted_version = Client.encrypt_version(aes_key, iv)
         encrypted_client_uuid = Client.encrypt_client_uuid(self.uuid, aes_key, iv)
-        encrypted_server_uuid = Client.encrypt_server_uuid(bytes.fromhex("64f3f63985f04beb81a0e43321880182"), aes_key, iv)
+        encrypted_server_uuid = Client.encrypt_server_uuid(bytes.fromhex("64f3f63985f04beb81a0e43321880182"),
+                                                           aes_key, iv)
         encrypted_creation_time = encrypt_time(datetime.now(), aes_key, iv)
         # Create authenticator
         authenticator = {
@@ -384,7 +385,7 @@ class Client:
         :return: Client | if process fails return None, otherwise return Client
         """
         # Load client info if existed.
-        client = Client.load_client_info(INFO_FILENAME)
+        client = Client.load_client_info(CLIENT_FILENAME)
         # If client is new, send registration request.
         if client is None:
             print("Registration to System")

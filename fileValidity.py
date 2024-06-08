@@ -18,11 +18,11 @@ def is_valid_file_to_open(filename, mode):
         with open(filename, mode):
             return True
     except FileNotFoundError:
-        print("File not found")
+        return False
     except PermissionError:
-        print("Permission denied to read the file")
+        return False
     except Exception as e:
-        print("An error occurred:", e)
+        return False
     return False
 
 
