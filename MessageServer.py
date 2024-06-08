@@ -12,6 +12,8 @@ from fileValidity import *
 AUTHENTICATOR_LIFETIME = 1 / 12     # lifetime of authenticator : 5 minutes
 MESSAGE_SERVER_FILENAME = 'msg.info'
 
+SOCKET_ERROR_MSG = "Connection Crash"
+
 
 class MessageServer:
     """
@@ -106,32 +108,43 @@ class MessageServer:
         :param packed_request: packed request from the user
         :return: In valid case, return decrypted ticket, decrypted authenticator, packet response, and Response code.
         """
+        print(f"{SEND_TICKET_REQUEST_CODE}: Send Symmetric Key Request")
         # unpack the request
         request = Request.unpack(packed_request)
         payload = request.payload
         # Extract the aes_key and decrypt it
         ticket = self.decrypt_ticket(payload['ticket'])
+        # check if fake ticket send
+        if ticket is None:
+            packed_response = Response(VERSION, GENERAL_RESPONSE_ERROR, None).pack()
+            return None, None, packed_response, SYMMETRIC_KEY_RECEIVED
         # Decrypt authenticator values
         authenticator = MessageServer.decrypt_authenticator(ticket['aes_key'], payload['authenticator'])
-        # Check Potential of replay attack
-        if ticket['expiration_time'] <= datetime.now() or not MessageServer.is_valid_authenticator(authenticator, ticket):
+        # Check Potential of replay attack, of fake authenticator.
+        if authenticator is None \
+                or ticket['expiration_time'] <= datetime.now() \
+                or not MessageServer.is_valid_authenticator(authenticator, ticket):
             packed_response = Response(VERSION, GENERAL_RESPONSE_ERROR, None).pack()
-            ticket = authenticator = None
+            return None, None, packed_response, SYMMETRIC_KEY_RECEIVED
         # The request is legal
         else:
             packed_response = Response(VERSION, SYMMETRIC_KEY_RECEIVED, None).pack()
-        return ticket, authenticator, packed_response, SYMMETRIC_KEY_RECEIVED
+            return ticket, authenticator, packed_response, SYMMETRIC_KEY_RECEIVED
 
     def decrypt_ticket(self, encrypted_ticket):
         """
-        decrypt ticket
+        decrypt ticket with the symmetric key, if decryption fails (fake ticket) return None
         :param encrypted_ticket: a ticket from Authenticator Server.
-        :return: decrypted ticket
+        :return: decrypted ticket, if decrypting fails return None
         """
         ticket_iv = encrypted_ticket['ticket_iv']
         cipher = AES.new(self.key, AES.MODE_CBC, ticket_iv)
-        aes_key = unpad(cipher.decrypt(encrypted_ticket['aes_key']), AES.block_size)
-        expiration_time = decrypt_time(encrypted_ticket['expiration_time'], self.key, ticket_iv)
+        # try to decrypt the ticket, avoiding fake ticket sent by third part.
+        try:
+            aes_key = unpad(cipher.decrypt(encrypted_ticket['aes_key']), AES.block_size)
+            expiration_time = decrypt_time(encrypted_ticket['expiration_time'], self.key, ticket_iv)
+        except ValueError:
+            return None
         # update ticket keys with decrypted values
         encrypted_ticket['aes_key'] = aes_key
         encrypted_ticket['expiration_time'] = expiration_time
@@ -147,20 +160,24 @@ class MessageServer:
         :return: decrypted authenticator
         """
         iv = encrypted_authenticator['authenticator_iv']
-        # Decrypt version
-        cipher = AES.new(aes_key, AES.MODE_CBC, iv)
-        # Decrypt the version
-        version = int.from_bytes(unpad(cipher.decrypt(encrypted_authenticator['version']), AES.block_size),
-                                 byteorder='big')
-        # Decrypt client_uuid
-        cipher = AES.new(aes_key, AES.MODE_CBC, iv)
-        client_uuid = unpad(cipher.decrypt(encrypted_authenticator['client_uuid']), AES.block_size).hex()
-        # Decrypt uuid
-        cipher = AES.new(aes_key, AES.MODE_CBC, iv)
-        server_uuid = unpad(cipher.decrypt(encrypted_authenticator['server_uuid']), AES.block_size).hex()
-        # Decrypt creation time
-        encrypted_creation_time = encrypted_authenticator['creation_time']
-        creation_time = decrypt_time(encrypted_creation_time, aes_key, iv)
+        # check case of fake authenticator sent by third party.
+        try:
+            # Decrypt version
+            cipher = AES.new(aes_key, AES.MODE_CBC, iv)
+            # Decrypt the version
+            version = int.from_bytes(unpad(cipher.decrypt(encrypted_authenticator['version']), AES.block_size),
+                                     byteorder='big')
+            # Decrypt client_uuid
+            cipher = AES.new(aes_key, AES.MODE_CBC, iv)
+            client_uuid = unpad(cipher.decrypt(encrypted_authenticator['client_uuid']), AES.block_size).hex()
+            # Decrypt uuid
+            cipher = AES.new(aes_key, AES.MODE_CBC, iv)
+            server_uuid = unpad(cipher.decrypt(encrypted_authenticator['server_uuid']), AES.block_size).hex()
+            # Decrypt creation time
+            encrypted_creation_time = encrypted_authenticator['creation_time']
+            creation_time = decrypt_time(encrypted_creation_time, aes_key, iv)
+        except ValueError:
+            return None
         # Building decrypted authenticator
         authenticator = {
             'authenticator_iv': iv,
@@ -194,7 +211,13 @@ class MessageServer:
         packed_request = client.recv(BUFFER_SIZE)
         # Extract request details for messages request.
         ticket, authenticator, packed_response, response_code = self.symmetric_key_request(packed_request)
-        client.send(packed_response)
+        # try sending
+        try:
+            client.send(packed_response)
+        # in case socket crash
+        except socket.error:
+            print(f"{SOCKET_ERROR_MSG}: {GENERAL_RESPONSE_ERROR}")
+        # error occur while extracting symmetric key - message appear in early stage.
         if response_code == GENERAL_RESPONSE_ERROR:
             client.close()
         else:
@@ -208,10 +231,9 @@ class MessageServer:
         the client print the message to the screen. if the user want to stop the connection type 'exit'
         :param client: Active socket to receive message from
         :param key: symmetric key between Message server and the client
-        :param expiration_time: Expiration time of connection
+        :param expiration_time: Expiration time of connection\
         :return:
         """
-
         # Firstly, receive the message header (excluding the message content), to be aware of the message content
         # length. Then, start receiving the message content using receive_long_encrypted_message method that receive
         # long messages.
@@ -222,6 +244,7 @@ class MessageServer:
             if packed_request is not None:
                 # unpack the request content.
                 request = Request.unpack(packed_request)
+                print(f"{SEND_MESSAGE_REQUEST_CODE}: Send Message Request")
                 # Extract important details.
                 message_length = request.payload['message_size']
                 message_iv = request.payload['message_iv']
@@ -235,18 +258,30 @@ class MessageServer:
                 # Time of check expiration_time earlier than enforcement time, so message sent after
                 # expiration time will
                 # be dismissed.
+
+                # if session key expired.
                 if expiration_time <= datetime.now():
                     packed_response = Response(VERSION, GENERAL_RESPONSE_ERROR, {}).pack()
-                    client.send(packed_response)
+                    try:
+                        client.send(packed_response)
+                    except socket.error:
+                        print(f"{GENERAL_RESPONSE_ERROR}: {SOCKET_ERROR_MSG}")
                     return
+                # if client decide to end session
                 if msg == 'exit':
                     packed_response = Response(VERSION, MESSAGE_RECEIVED, {}).pack()
-                    client.send(packed_response)
+                    try:
+                        client.send(packed_response)
+                    except socket.error:
+                        print(f"{GENERAL_RESPONSE_ERROR}: {SOCKET_ERROR_MSG}")
                     return
-                # print the message
+                # if message received - replay with ack and print the message
                 print(f"{client_uuid}: {msg}")
                 packed_response = Response(VERSION, MESSAGE_RECEIVED, {}).pack()
-                client.send(packed_response)
+                try:
+                    client.send(packed_response)
+                except socket.error:
+                    print(f"{GENERAL_RESPONSE_ERROR}: {SOCKET_ERROR_MSG}")
             else:
                 # error case
                 return

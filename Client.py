@@ -20,6 +20,8 @@ SESSION_ENDED_INITIATIVE = 601
 MAX_TRIES = 3
 
 MESSAGE_SERVER_UUID = "64f3f63985f04beb81a0e43321880182"
+AS_SOCKET_CRASH_ERROR_MESSAGE = "Authentication Server connection crash. Try again Later!"
+MSG_SOCKET_CRASH_ERROR_MESSAGE = "Message Server connection crash. Try again Later!"
 
 
 class Client:
@@ -202,7 +204,7 @@ class Client:
         response = Response.unpack(packed_response)
         # registration failed
         if response.response_code == REGISTRATION_FAILED:
-            print(SERVER_ERROR_MESSAGE)
+            print(f"{REGISTRATION_FAILED}: Registration Failed")
             exit(REGISTRATION_FAILED)
         # response.response_code == REGISTRATION_SUCCEED
         else:
@@ -214,6 +216,7 @@ class Client:
             client = cls(name, client_uuid)
             # store the client info into file.
             client.store_client_info()
+            print(f"{REGISTRATION_SUCCEED}: Registration Succeed")
             return client
 
     def symmetric_key_request(self):
@@ -250,9 +253,10 @@ class Client:
             # check replay attack potential
             if nonce_update(request.payload['nonce']) != updated_nonce:
                 print("Potential of Replay Attack")
+            print(f"{SEND_SYMMETRIC_KEY}: Symmetric Key Request Succeed")
             return aes_key, ticket
         else:
-            print(SERVER_ERROR_MESSAGE)
+            print(f"{GENERAL_RESPONSE_ERROR}: {SERVER_ERROR_MESSAGE}")
             exit(GENERAL_RESPONSE_ERROR)
 
     def decrypt_encrypted_key(self, encrypted_key):
@@ -267,14 +271,15 @@ class Client:
         encrypted_nonce = encrypted_key['nonce']
         # decrypt the aes key
         cipher = AES.new(bytes.fromhex(self.key), AES.MODE_CBC, iv)
+        # according to the password the user provide try to decrypt encrypted key, No Login Process
         try:
             aes_key = unpad(cipher.decrypt(encrypted_aes_key), AES.block_size)
+            # decrypt the nonce
+            cipher = AES.new(bytes.fromhex(self.key), AES.MODE_CBC, iv)
+            nonce = unpad(cipher.decrypt(encrypted_nonce), AES.block_size)
         except ValueError:
-            print("Incorrect Password")
+            print(f"{GENERAL_RESPONSE_ERROR}: Incorrect Password")
             exit(GENERAL_RESPONSE_ERROR)
-        # decrypt the nonce
-        cipher = AES.new(bytes.fromhex(self.key), AES.MODE_CBC, iv)
-        nonce = unpad(cipher.decrypt(encrypted_nonce), AES.block_size)
         # There is alert reference before assignment in (PYCHARM) - however the program exit if assignment fails.
         return aes_key, nonce
 
@@ -296,9 +301,15 @@ class Client:
             # header of message request to send to message server
             request = Request(self.uuid, VERSION, SEND_MESSAGE_REQUEST_CODE, payload)
             packed_request = request.pack()
-            msg_server_client.send(packed_request)
+            try:
+                msg_server_client.send(packed_request)
+            except socket.error:
+                print(f"{GENERAL_RESPONSE_ERROR}: {MSG_SOCKET_CRASH_ERROR_MESSAGE}")
+                return
             # send the encrypted message
-            self.send_encrypted_message(msg_server_client, encrypted_message)
+            is_msg_sent = self.send_encrypted_message(msg_server_client, encrypted_message)
+            if not is_msg_sent:
+                return GENERAL_RESPONSE_ERROR
             # receive response
             response_code = Client.message_response(msg_server_client)
             if response_code != MESSAGE_RECEIVED:
@@ -314,15 +325,20 @@ class Client:
         send long encrypted message
         :param msg_server_client: socket to send on
         :param encrypted_message: the message
-        :return:
+        :return: True if message sent, otherwise False
         """
         message_length = len(encrypted_message)
         # count bytes sent amount
         sent_bytes = 0
         while sent_bytes < message_length:
-            msg_server_client.send(encrypted_message[sent_bytes: sent_bytes + BUFFER_SIZE])
-            # update the counter
-            sent_bytes += BUFFER_SIZE
+            try:
+                msg_server_client.send(encrypted_message[sent_bytes: sent_bytes + BUFFER_SIZE])
+                # update the counter
+                sent_bytes += BUFFER_SIZE
+            except socket.error:
+                print(f"{GENERAL_RESPONSE_ERROR}: {MSG_SOCKET_CRASH_ERROR_MESSAGE}")
+                return False
+        return True
 
     @staticmethod
     def message_response(msg_server_client):
@@ -337,6 +353,7 @@ class Client:
         response = Response.unpack(packed_response)
         # check if the message receive successfully
         if response.response_code == MESSAGE_RECEIVED:
+            print(f"{MESSAGE_RECEIVED}: Message Received")
             return MESSAGE_RECEIVED
         # check if session expired.
         elif response.response_code == GENERAL_RESPONSE_ERROR:
@@ -383,15 +400,21 @@ class Client:
             print("Registration to System")
             # Send Registration Request to Authentication Server.
             packed_request, password = Client.registration_request()
-            auth_server_socket.send(packed_request)
-            packed_response = auth_server_socket.recv(BUFFER_SIZE)
+            try:
+                auth_server_socket.send(packed_request)
+            except socket.error:
+                print(AS_SOCKET_CRASH_ERROR_MESSAGE)
+                return None
+            packed_response = secured_receiving_packet(auth_server_socket)
+            if packed_response is None:
+                return None
             client = Client.registration_response(packed_response, packed_request)
             # registration failed
             if client is None:
                 return None
             # set the password
             client.set_key(password)
-            clear_console()
+            print()
         return client
 
 
@@ -488,19 +511,27 @@ def main():
 
     # login or registration process
     client = Client.authorization_process(auth_server_socket)
-    # login and registration failed:
+    # authorization process failed.
     if client is None:
         return
-
     while True:
         print(f"Hi {client.name}!")
         # Get the password from the client in order to decrypt the key.
         password = get_password()
+        # check case of Client application crash before providing password.
+        if password is None:
+            return
         client.set_key(password)
         # Send symmetric key request to Authentication Server.
         packed_request = client.symmetric_key_request()
-        auth_server_socket.send(packed_request)
-        packed_response = auth_server_socket.recv(BUFFER_SIZE)
+        # check if socket crashes
+        try:
+            auth_server_socket.send(packed_request)
+        except socket.error:
+            print(AS_SOCKET_CRASH_ERROR_MESSAGE)
+        packed_response = secured_receiving_packet(auth_server_socket)
+        if packed_response is None:
+            return
         aes_key, ticket = client.symmetric_key_response(packed_response, packed_request)
         # Check error occur
         if aes_key is None:
@@ -515,9 +546,14 @@ def main():
             return
         # initiate message request with message server
         packed_request = client.msg_srv_connection_request(aes_key, ticket)
-        msg_server_client.send(packed_request)
+        try:
+            msg_server_client.send(packed_request)
+        except socket.error:
+            print(MSG_SOCKET_CRASH_ERROR_MESSAGE)
         # receive response
-        packed_response = msg_server_client.recv(BUFFER_SIZE)
+        packed_response = secured_receiving_packet(msg_server_client)
+        if packed_response is None:
+            return
         response_code = Client.msg_server_symmetric_key_response(packed_response)
 
         if response_code == GENERAL_RESPONSE_ERROR:

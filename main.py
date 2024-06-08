@@ -1,61 +1,46 @@
+import os
+import subprocess
+import threading
+import socket
+import time
+
 from Crypto.Cipher import AES
 from Crypto.Random import get_random_bytes
 from Crypto.Util.Padding import pad, unpad
 from datetime import datetime, timedelta
+
+import Client
 from Utilization import *
 import base64
+import Client
+
+CLIENTS_FOLDER_DDOS_ATTACK = "DDOS_CLIENTS"
+MESSAGE_SERVER_UUID = "64f3f63985f04beb81a0e43321880182"
+CLIENTS_AMOUNT = 1
+
 
 def main():
-    """Start: Encryption and Decryption"""
-    # # Encryption
-    # plain_text = "hello world"
-    # key = get_random_bytes(32)
-    # cipher = AES.new(key, AES.MODE_CBC)
-    # encrypted_text = cipher.encrypt(pad(str(plain_text).encode(), AES.block_size))
-    # print(encrypted_text)
-    # print(cipher.iv)
-    #
-    # # Decryption
-    # iv = cipher.iv
-    # cipher = AES.new(key, AES.MODE_CBC, iv)
-    # plain_text = unpad(cipher.decrypt(encrypted_text), AES.block_size).decode()
-    # print(plain_text)
-    """End: Encryption and Decryption"""
+    if not os.path.exists(CLIENTS_FOLDER_DDOS_ATTACK):
+        os.mkdir(CLIENTS_FOLDER_DDOS_ATTACK)
+    os.chdir(CLIENTS_FOLDER_DDOS_ATTACK)
+    parent_directory = os.getcwd()
+    for i in range(CLIENTS_AMOUNT):
+        filename = "c" + str(i)
+        os.mkdir(filename)
+        os.chdir(filename)
+        with open("srv.info", "w") as file:
+            file.write("127.0.0.1:5555\n127.0.0.1:9999\n")
+            os.chdir(parent_directory)
 
 
-    """Start: Encyrpting time"""
-    # key = get_random_bytes(32)
-    # iv = get_random_bytes(16)
-    # # Sample datetime.
-    # current_time = datetime.now()
-    # print(current_time)
-    # encrypted_ct = encrypt_time(current_time, key, iv)
-    # current_time = decrypt_time(encrypted_ct, key, iv)
-    # print(current_time)
-    """End: Encyrpting time"""
+    for i in range(CLIENTS_AMOUNT):
+        filename = "c" + str(i)
+        os.chdir(filename)
+        input_data = "C" + str(i) + "\nc" + str(i) + "\n"
+        process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                   text=True)
+        output, error = process.communicate(input=input_data)
 
-    # password = "amjad123"
-    # h = SHA256.new()
-    # h.update(password.encode('utf-8'))
-    # key = h.digest()
-    # iv = get_random_bytes(16)
-    # plain_text = "credit number 1234 5678 1234 1234"
-    #
-    # cipher = AES.new(key, AES.MODE_CBC, iv)
-    # encrypted_text = cipher.encrypt(pad(plain_text.encode('utf-8'), AES.block_size))
-    #
-    # password = "amjad123"
-    # h = SHA256.new()
-    # h.update(password.encode('utf-8'))
-    # key = h.digest()
-    # cipher = AES.new(key, AES.MODE_CBC, iv)
-    # print(unpad(cipher.decrypt(encrypted_text), AES.block_size).decode(('utf-8')))
-
-    key = get_random_bytes(32)
-    print(key)
-    key_b64 = base64.b64encode(key).decode()
-    print(len(key_b64))
-    print(base64.b64decode(key_b64))
 
 
 if __name__ == '__main__':

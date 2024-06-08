@@ -1,6 +1,7 @@
 import os.path
 import socket
 import threading
+import time
 from datetime import timedelta
 from fileValidity import *
 from Crypto.Random import get_random_bytes
@@ -22,6 +23,7 @@ MESSAGE_SERVER_FILENAME = 'msg.info'    # message server details filename
 PORT_FILENAME = 'port.info'             # AS port filename
 
 DATETIME_FORMAT = "%Y-%m-%d_%H-%M-%S"   # datetime storing format
+SOCKET_ERROR_MSG = "Connection Crash"   # socket error message
 
 
 class Client:
@@ -454,28 +456,52 @@ def provide_service(client, addr, auth_server):
     # check demand request
     if request_code == REGISTRATION_REQUEST_CODE:
         # client registration request
-        print(f"{addr[0]} - Registration Request")
+        print(f"{REGISTRATION_REQUEST_CODE}: Registration Request")
         # run through registration request
         registration_response, response_code, client_uuid = auth_server.registration_request(request)
-        client.send(registration_response)
+        # in case socket crash
+        try:
+            client.send(registration_response)
+        except socket.error:
+            print(f"{GENERAL_RESPONSE_ERROR}: {SOCKET_ERROR_MSG}")
+            return
         # After registration client need to sign in
         if response_code == REGISTRATION_SUCCEED:
             # registration succeed - symmetric key service
             print(f"{addr[0]}:{client_uuid} Registration Succeed")
-            packed_request = client.recv(BUFFER_SIZE)
+            packed_request = secured_receiving_packet(client)
+            if packed_request is None:
+                return
             request = Request.unpack(packed_request)
             symmetric_key_response = auth_server.symmetric_key_request(request)
-            client.send(symmetric_key_response)
+            # in case socket crash
+            try:
+                client.send(symmetric_key_response)
+            except socket.error:
+                print(f"{GENERAL_RESPONSE_ERROR}: {SOCKET_ERROR_MSG}")
+                return
         else:
             # registration failed
             print(f"{addr[0]}: Registration Failed.")
     elif request_code == SYMMETRIC_REQUEST_CODE:
         # symmetric key request
-        print(f"{addr[0]}:{request.client_uuid} - Symmetric Key Request")
+        print(f"{addr[0]}:{request.client_uuid} - Symmetric Key Request ({SYMMETRIC_REQUEST_CODE})")
         symmetric_key_response = auth_server.symmetric_key_request(request)
-        client.send(symmetric_key_response)
+        # in case socket crash
+        try:
+            client.send(symmetric_key_response)
+        except socket.error:
+            print(f"{GENERAL_RESPONSE_ERROR}: {SOCKET_ERROR_MSG}")
+            return
     else:
-        raise ValueError("Invalid request code.")
+        # invalid request code
+        response = Response(VERSION, GENERAL_RESPONSE_ERROR, {})
+        # in case socket crash
+        try:
+            client.send(response.pack())
+        except socket.error:
+            print(f"{GENERAL_RESPONSE_ERROR}: {SOCKET_ERROR_MSG}")
+            return
     client.close()
 
 
