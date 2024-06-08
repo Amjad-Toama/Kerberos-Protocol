@@ -13,21 +13,13 @@ MESSAGE_MAX_BYTES_SIZE = 4
 BITS_PER_BYTE = 8
 MESSAGE_MAX_SIZE = (2 ** (MESSAGE_MAX_BYTES_SIZE * BITS_PER_BYTE)) - 1
 DEFAULT_AUTHENTICATION_PORT = 1256
-
 IV_LENGTH = 16
 NONCE_SIZE = 8
-
 SESSION_EXPIRED = 600
 SESSION_ENDED_INITIATIVE = 601
 MAX_TRIES = 3
 
-
-class Server:
-    def __init__(self, ip, port, name, uuid, key):
-        self.ip, self.port, self.name, self.uuid, self.key = ip, port, name, uuid, key
-
-    def __str__(self):
-        return f"{self.ip}:{self.port}\n{self.name}\n{self.uuid}\n{self.key}"
+MESSAGE_SERVER_UUID = "64f3f63985f04beb81a0e43321880182"
 
 
 class Client:
@@ -36,23 +28,24 @@ class Client:
 
     ################## Attributes ##################
 
-    name   :   string
+    name                :   string
         client name
 
-    uuid     :   hex
+    uuid                :   hex
         uuid received from authentication server in registration stage
 
-    key:   hex
+    key                 :   hex
         symmetric key shared with message key, that generated from authenticator server.
 
-    #################### Methods ###################
-
+    message_server_uuid :   Server
+        message server details.
     """
 
     def __init__(self, name, uuid, key=None):
         self.name = name
         self.uuid = uuid
         self.key = key
+        self.message_server_uuid = MESSAGE_SERVER_UUID
 
     def set_key(self, password):
         """
@@ -129,7 +122,7 @@ class Client:
         # encrypt values
         encrypted_version = Client.encrypt_version(aes_key, iv)
         encrypted_client_uuid = Client.encrypt_client_uuid(self.uuid, aes_key, iv)
-        encrypted_server_uuid = Client.encrypt_server_uuid(bytes.fromhex("64f3f63985f04beb81a0e43321880182"),
+        encrypted_server_uuid = Client.encrypt_server_uuid(bytes.fromhex(self.message_server_uuid),
                                                            aes_key, iv)
         encrypted_creation_time = encrypt_time(datetime.now(), aes_key, iv)
         # Create authenticator
@@ -232,8 +225,7 @@ class Client:
         nonce = get_random_bytes(NONCE_SIZE)
         # create the payload
         payload = {
-            # TODO: server_uuid HARDCODED.
-            'server_uuid': "64f3f63985f04beb81a0e43321880182",
+            'server_uuid': self.message_server_uuid,
             'nonce': nonce
         }
         # create request to send.
@@ -513,6 +505,7 @@ def main():
         # Check error occur
         if aes_key is None:
             return
+        # authentication socket close
         auth_server_socket.close()
 
         # Connect to the message server.
@@ -520,8 +513,10 @@ def main():
         if msg_server_client is None:
             print(SERVER_ERROR_MESSAGE)
             return
+        # initiate message request with message server
         packed_request = client.msg_srv_connection_request(aes_key, ticket)
         msg_server_client.send(packed_request)
+        # receive response
         packed_response = msg_server_client.recv(BUFFER_SIZE)
         response_code = Client.msg_server_symmetric_key_response(packed_response)
 
