@@ -3,37 +3,25 @@ import socket
 import threading
 from datetime import timedelta
 from fileValidity import *
-
 from Crypto.Random import get_random_bytes
-
 from Request import *
 from Response import *
 from Utilization import *
 
-########################################################################
-# ######################## Constants Section ######################### #
-########################################################################
-# USERNAME_LENGTH     : username max length (include null character)   #
-# PASSWORD_LENGTH     : password max length (include null character)   #
-# ID_LENGTH           : user id max length                             #
-# KEY_LENGTH          : symmetric key max length                       #
-# IV_LENGTH           : iv length (16 is default length)               #
-# VERSION             : protocol version                               #
-# TICKET_TIME_DURATION: duration of ticket validity (in hours)         #
-########################################################################
 
-USERNAME_LENGTH = 255
-PASSWORD_LENGTH = 255
-UUID_LENGTH = 16
-KEY_LENGTH = 32
-IV_LENGTH = 16
-VERSION = 24
-TICKET_TIME_DURATION = 1
+USERNAME_LENGTH = 255       # username max length
+PASSWORD_LENGTH = 255       # password max length
+UUID_LENGTH = 16            # user id max length
+KEY_LENGTH = 32             # symmetric key max length
+IV_LENGTH = 16              # iv length (16 is default length)
+VERSION = 24                # protocol version
+TICKET_TIME_DURATION = 1    # duration of ticket validity (in hours)
 
-CLIENTS_FILENAME = 'clients'
-MESSAGE_SERVER_FILENAME = 'msg.info'
-PORT_FILENAME = 'port.info'
+CLIENTS_FILENAME = 'clients'            # clients filename
+MESSAGE_SERVER_FILENAME = 'msg.info'    # message server details filename
+PORT_FILENAME = 'port.info'             # AS port filename
 
+DATETIME_FORMAT = "%Y-%m-%d_%H-%M-%S"   # datetime storing format
 
 
 class Client:
@@ -50,7 +38,19 @@ class Client:
         self.uuid, self.name, self.password_hash, self.last_seen = uuid, name, password_hash, last_seen
 
     def __str__(self):
-        return f"{self.uuid}:{self.name}:{self.password_hash}:{self.last_seen}"
+        last_seen_format = self.last_seen_to_str_format()
+        return f"{self.uuid}:{self.name}:{self.password_hash}:{last_seen_format}"
+
+    def last_seen_to_str_format(self):
+        return self.last_seen.strftime(DATETIME_FORMAT)
+
+    @staticmethod
+    def last_seen_to_datetime(str_datetime):
+        return datetime.strptime(str_datetime, DATETIME_FORMAT)
+
+    @classmethod
+    def copy(cls, client):
+        return cls(client.uuid, client.name, client.password_hash, client.last_seen)
 
     def set_last_seen(self, now):
         """
@@ -140,15 +140,18 @@ class AuthenticationServer:
                 # parse each line to store client into memory - dict
                 for line in lines:
                     c_details = line.strip().split(':')
+                    last_seen = Client.last_seen_to_datetime(c_details[3])
                     # client_uuid:client_name:client_passwordSHA256_hex_last_seen
-                    self.clients[c_details[0]] = Client(c_details[0], c_details[1], c_details[2], c_details[3])
+                    self.clients[c_details[0]] = Client(c_details[0], c_details[1], c_details[2], last_seen)
             return self.clients
         # file doesn't exist - create file and empty client dictionary
         elif not os.path.exists(filename):
-            with open(filename, "w") as file:
-                self.clients_filename = filename
-                self.clients = dict()
-                return self.clients
+            # create empty file
+            open(filename, "w")
+            self.clients_filename = filename
+            # create empty dictionary
+            self.clients = dict()
+            return self.clients
         # file error
         else:
             print(f"file error: {filename}")
@@ -251,7 +254,7 @@ class AuthenticationServer:
             # extract details to generate aes key as response
             nonce = request.payload['nonce']
             # update client last seen.
-            self.update_client_last_seen(client_uuid)
+            self.update_client_last_seen(self.clients[client_uuid])
             # Generate symmetric key for client and required server.
             aes_key = get_random_bytes(KEY_LENGTH)
             # create encrypted key to client
@@ -336,7 +339,8 @@ class AuthenticationServer:
     # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
     ###################################################################
 
-    def update_client_last_seen(self, client):
+    @staticmethod
+    def update_client_last_seen(client):
         """
         update last seen of client in memory and on the file
         :param client: client entity
@@ -344,9 +348,22 @@ class AuthenticationServer:
         """
         # Current time
         now = datetime.now()
+        AuthenticationServer.update_file_last_seen(client, now)
         # update the datetime in the memory
-        self.clients[client].set_last_seen(now)
-        # TODO: update the file.
+        client.set_last_seen(now)
+
+    @staticmethod
+    def update_file_last_seen(client, now):
+        temp_client = Client.copy(client)
+        temp_client.set_last_seen(now)
+        with open(CLIENTS_FILENAME, "r") as file, open("temp_client_file", "w") as temp_file:
+            lines = file.readlines()
+            for line in lines:
+                if str(client) == line:
+                    temp_file.write(str(temp_client))
+                else:
+                    temp_file.write(line)
+        os.replace("temp_client_file", CLIENTS_FILENAME)
 
     def save_new_client(self, new_client):
         """
@@ -420,26 +437,40 @@ class AuthenticationServer:
 
 
 def provide_service(client, addr, auth_server):
+    """
+    supply authentication servers services to given client
+    :param client: opened socket with client - to supply services
+    :param addr: client ip address
+    :param auth_server: Authentication Server object.
+    :return:
+    """
+    # receive request
     packed_request = secured_receiving_packet(client)
+    # check if failure occur in request receiving process
     if packed_request is None:
         return
-    # Unpack the received request
-    request = Request.unpack(packed_request)
-    request_code = request.request_code
+    request = Request.unpack(packed_request)    # unpack the received request
+    request_code = request.request_code         # extract request code
+    # check demand request
     if request_code == REGISTRATION_REQUEST_CODE:
+        # client registration request
         print(f"{addr[0]} - Registration Request")
+        # run through registration request
         registration_response, response_code, client_uuid = auth_server.registration_request(request)
         client.send(registration_response)
         # After registration client need to sign in
         if response_code == REGISTRATION_SUCCEED:
+            # registration succeed - symmetric key service
             print(f"{addr[0]}:{client_uuid} Registration Succeed")
             packed_request = client.recv(BUFFER_SIZE)
             request = Request.unpack(packed_request)
             symmetric_key_response = auth_server.symmetric_key_request(request)
             client.send(symmetric_key_response)
         else:
+            # registration failed
             print(f"{addr[0]}: Registration Failed.")
     elif request_code == SYMMETRIC_REQUEST_CODE:
+        # symmetric key request
         print(f"{addr[0]}:{request.client_uuid} - Symmetric Key Request")
         symmetric_key_response = auth_server.symmetric_key_request(request)
         client.send(symmetric_key_response)
@@ -449,6 +480,7 @@ def provide_service(client, addr, auth_server):
 
 
 def main():
+    # initialize authentication server
     auth_server = AuthenticationServer()
     auth_server.load_endpoint(PORT_FILENAME)
     auth_server.load_msg_server(MESSAGE_SERVER_FILENAME)
