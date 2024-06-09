@@ -1,7 +1,5 @@
 import os.path
-import socket
 import threading
-import time
 from datetime import timedelta
 from fileValidity import *
 from Crypto.Random import get_random_bytes
@@ -9,21 +7,13 @@ from Request import *
 from Response import *
 from Utilization import *
 
-
-USERNAME_LENGTH = 255       # username max length
-PASSWORD_LENGTH = 255       # password max length
-UUID_LENGTH = 16            # user id max length
-KEY_LENGTH = 32             # symmetric key max length
-IV_LENGTH = 16              # iv length (16 is default length)
-VERSION = 24                # protocol version
-TICKET_TIME_DURATION = 1    # duration of ticket validity (in hours)
+TICKET_TIME_DURATION = 1                # duration of ticket validity (in hours)
 
 CLIENTS_FILENAME = 'clients'            # clients filename
 MESSAGE_SERVER_FILENAME = 'msg.info'    # message server details filename
 PORT_FILENAME = 'port.info'             # AS port filename
 
 DATETIME_FORMAT = "%Y-%m-%d_%H-%M-%S"   # datetime storing format
-SOCKET_ERROR_MSG = "Connection Crash"   # socket error message
 
 
 class Client:
@@ -258,7 +248,7 @@ class AuthenticationServer:
             # update client last seen.
             self.update_client_last_seen(self.clients[client_uuid])
             # Generate symmetric key for client and required server.
-            aes_key = get_random_bytes(KEY_LENGTH)
+            aes_key = get_random_bytes(KEY_LEN)
             # create encrypted key to client
             encrypted_key = self.get_encrypted_key(aes_key, self.clients[client_uuid], nonce)
             # create ticket to message server
@@ -286,7 +276,7 @@ class AuthenticationServer:
         # convert password to bytes
         key = bytes.fromhex(client.password_hash)
         # generate initial vector
-        iv = get_random_bytes(IV_LENGTH)
+        iv = get_random_bytes(IV_LEN)
         # encrypt the aes key
         cipher = AES.new(key, AES.MODE_CBC, iv)
         encrypted_aes_key = cipher.encrypt(pad(aes_key, AES.block_size))
@@ -314,7 +304,7 @@ class AuthenticationServer:
         # Convert message server key to bytes
         key = msg_server.key
         # generate initial vector
-        iv = get_random_bytes(IV_LENGTH)
+        iv = get_random_bytes(IV_LEN)
         cipher = AES.new(key, AES.MODE_CBC, iv)
         # Encrypt symmetric key.
         encrypted_aes_key = cipher.encrypt(pad(aes_key, AES.block_size))
@@ -380,15 +370,15 @@ class AuthenticationServer:
 
     def get_new_client_uuid(self):
         """
-        Generate unique hex client UUID of length UUID_LENGTH
+        Generate unique hex client UUID of length UUID_LEN
         :return: hex client UUID
         """
         # generate random bytes of ID_LENGTH length
-        client_uuid = get_random_bytes(UUID_LENGTH).hex()
+        client_uuid = get_random_bytes(UUID_LEN).hex()
         # check if the generated client UUID already exist.
         while client_uuid in self.clients.keys():
             # generate random bytes of ID_LENGTH length
-            client_uuid = get_random_bytes(UUID_LENGTH).hex()
+            client_uuid = get_random_bytes(UUID_LEN).hex()
         return client_uuid
 
     def is_client(self, client_uuid):
@@ -451,7 +441,10 @@ def provide_service(client, addr, auth_server):
     # check if failure occur in request receiving process
     if packed_request is None:
         return
-    request = Request.unpack(packed_request)    # unpack the received request
+    try:
+        request = Request.unpack(packed_request)    # unpack the received request
+    except ValueError:
+        return
     request_code = request.request_code         # extract request code
     # check demand request
     if request_code == REGISTRATION_REQUEST_CODE:
@@ -460,10 +453,8 @@ def provide_service(client, addr, auth_server):
         # run through registration request
         registration_response, response_code, client_uuid = auth_server.registration_request(request)
         # in case socket crash
-        try:
-            client.send(registration_response)
-        except socket.error:
-            print(f"{GENERAL_RESPONSE_ERROR}: {SOCKET_ERROR_MSG}")
+        send_succeed = secured_sending_packet(client, registration_response)
+        if not send_succeed:
             return
         # After registration client need to sign in
         if response_code == REGISTRATION_SUCCEED:
@@ -472,14 +463,17 @@ def provide_service(client, addr, auth_server):
             packed_request = secured_receiving_packet(client)
             if packed_request is None:
                 return
-            request = Request.unpack(packed_request)
+            # Request packet changed or illegal
+            try:
+                request = Request.unpack(packed_request)
+            except ValueError:
+                return
             symmetric_key_response = auth_server.symmetric_key_request(request)
             # in case socket crash
-            try:
-                client.send(symmetric_key_response)
-            except socket.error:
-                print(f"{GENERAL_RESPONSE_ERROR}: {SOCKET_ERROR_MSG}")
+            send_succeed = secured_sending_packet(client, symmetric_key_response)
+            if not send_succeed:
                 return
+            print(f"{addr[0]}:{request.client_uuid} - Symmetric Key Request ({SYMMETRIC_REQUEST_CODE})")
         else:
             # registration failed
             print(f"{addr[0]}: Registration Failed.")
@@ -488,19 +482,15 @@ def provide_service(client, addr, auth_server):
         print(f"{addr[0]}:{request.client_uuid} - Symmetric Key Request ({SYMMETRIC_REQUEST_CODE})")
         symmetric_key_response = auth_server.symmetric_key_request(request)
         # in case socket crash
-        try:
-            client.send(symmetric_key_response)
-        except socket.error:
-            print(f"{GENERAL_RESPONSE_ERROR}: {SOCKET_ERROR_MSG}")
+        send_succeed = secured_sending_packet(client, symmetric_key_response)
+        if not send_succeed:
             return
     else:
         # invalid request code
         response = Response(VERSION, GENERAL_RESPONSE_ERROR, {})
         # in case socket crash
-        try:
-            client.send(response.pack())
-        except socket.error:
-            print(f"{GENERAL_RESPONSE_ERROR}: {SOCKET_ERROR_MSG}")
+        send_succeed = secured_sending_packet(client, response)
+        if not send_succeed:
             return
     client.close()
 

@@ -1,22 +1,19 @@
 import unittest
-from datetime import datetime
 from MessageServer import *
-
-
-SERVER_VERSION = 24
+from Constants import VERSION
 
 
 class TestMessageServer(unittest.TestCase):
 
     def setUp(self):
         self.authenticator_base = {
-            'version': SERVER_VERSION,
+            'version': VERSION,
             'client_uuid': bytes.fromhex('ebaf87c398f52cdaf16a6f623cffa26c'),
             'server_uuid': bytes.fromhex('312a9449d65ddddccadc8226f64e4db4'),
             'creation_time': datetime.now()
         }
         self.ticket_base = {
-            'version': SERVER_VERSION,
+            'version': VERSION,
             'client_uuid': bytes.fromhex('ebaf87c398f52cdaf16a6f623cffa26c'),
             'server_uuid': bytes.fromhex('312a9449d65ddddccadc8226f64e4db4'),
         }

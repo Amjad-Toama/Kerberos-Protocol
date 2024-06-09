@@ -1,5 +1,4 @@
 import os.path
-import socket
 from Crypto.Random import get_random_bytes
 from fileValidity import *
 from Request import *
@@ -9,12 +8,7 @@ from Utilization import *
 SERVERS_FILENAME = "srv.info"
 CLIENT_FILENAME = "me.info"
 SERVER_ERROR_MESSAGE = "server responded with an error"
-MESSAGE_MAX_BYTES_SIZE = 4
-BITS_PER_BYTE = 8
-MESSAGE_MAX_SIZE = (2 ** (MESSAGE_MAX_BYTES_SIZE * BITS_PER_BYTE)) - 1
-DEFAULT_AUTHENTICATION_PORT = 1256
-IV_LENGTH = 16
-NONCE_SIZE = 8
+
 SESSION_EXPIRED = 600
 SESSION_ENDED_INITIATIVE = 601
 MAX_TRIES = 3
@@ -120,7 +114,7 @@ class Client:
         :return: Dictionary authenticator
         """
         # generate initial vector
-        iv = get_random_bytes(IV_LENGTH)
+        iv = get_random_bytes(IV_LEN)
         # encrypt values
         encrypted_version = Client.encrypt_version(aes_key, iv)
         encrypted_client_uuid = Client.encrypt_client_uuid(self.uuid, aes_key, iv)
@@ -200,8 +194,12 @@ class Client:
         :param packed_request: request of client in registration request
         :return: Instance of initialized client or None if registration failed
         """
-        # unpack the response
-        response = Response.unpack(packed_response)
+        # validate that response is legal with correct structure and content
+        try:
+            # unpack the response
+            response = Response.unpack(packed_response)
+        except ValueError:
+            return None
         # registration failed
         if response.response_code == REGISTRATION_FAILED:
             print(f"{REGISTRATION_FAILED}: Registration Failed")
@@ -225,7 +223,7 @@ class Client:
         :return: packed request
         """
         # Generate nonce value
-        nonce = get_random_bytes(NONCE_SIZE)
+        nonce = get_random_bytes(NONCE_LEN)
         # create the payload
         payload = {
             'server_uuid': self.message_server_uuid,
@@ -242,17 +240,25 @@ class Client:
         :param packed_request: request of client in registration request
         :return:
         """
-        response = Response.unpack(packed_response)
+        # validate that response is legal with correct structure and content
+        try:
+            response = Response.unpack(packed_response)
+        except ValueError:
+            return None, None
         request = Request.unpack(packed_request)
+        # check code compatibility
         if response.response_code == SEND_SYMMETRIC_KEY:
             # extract the data from the payload
             encrypted_key = response.payload['encrypted_key']
             ticket = response.payload['ticket']
             # decrypt the encrypted key
             aes_key, updated_nonce = self.decrypt_encrypted_key(encrypted_key)
-            # check replay attack potential
+            # aes is none when password incorrect and check replay attack potential
+            if aes_key is None:
+                return None, None
             if nonce_update(request.payload['nonce']) != updated_nonce:
-                print("Potential of Replay Attack")
+                print(f"{GENERAL_RESPONSE_ERROR}: Potential of Replay Attack")
+                return None, None
             print(f"{SEND_SYMMETRIC_KEY}: Symmetric Key Request Succeed")
             return aes_key, ticket
         else:
@@ -279,7 +285,7 @@ class Client:
             nonce = unpad(cipher.decrypt(encrypted_nonce), AES.block_size)
         except ValueError:
             print(f"{GENERAL_RESPONSE_ERROR}: Incorrect Password")
-            exit(GENERAL_RESPONSE_ERROR)
+            return None, None
         # There is alert reference before assignment in (PYCHARM) - however the program exit if assignment fails.
         return aes_key, nonce
 
@@ -301,10 +307,8 @@ class Client:
             # header of message request to send to message server
             request = Request(self.uuid, VERSION, SEND_MESSAGE_REQUEST_CODE, payload)
             packed_request = request.pack()
-            try:
-                msg_server_client.send(packed_request)
-            except socket.error:
-                print(f"{GENERAL_RESPONSE_ERROR}: {MSG_SOCKET_CRASH_ERROR_MESSAGE}")
+            sending_succeed = secured_sending_packet(msg_server_client, packed_request, MSG_SOCKET_CRASH_ERROR_MESSAGE)
+            if not sending_succeed:
                 return
             # send the encrypted message
             is_msg_sent = self.send_encrypted_message(msg_server_client, encrypted_message)
@@ -331,13 +335,13 @@ class Client:
         # count bytes sent amount
         sent_bytes = 0
         while sent_bytes < message_length:
-            try:
-                msg_server_client.send(encrypted_message[sent_bytes: sent_bytes + BUFFER_SIZE])
-                # update the counter
-                sent_bytes += BUFFER_SIZE
-            except socket.error:
-                print(f"{GENERAL_RESPONSE_ERROR}: {MSG_SOCKET_CRASH_ERROR_MESSAGE}")
+            send_succeed = secured_sending_packet(msg_server_client,
+                                                  encrypted_message[sent_bytes: sent_bytes + BUFFER_SIZE],
+                                                  MSG_SOCKET_CRASH_ERROR_MESSAGE)
+            if not send_succeed:
                 return False
+            # update the counter
+            sent_bytes += BUFFER_SIZE
         return True
 
     @staticmethod
@@ -349,8 +353,12 @@ class Client:
         """
         # receive the response
         packed_response = msg_server_client.recv(BUFFER_SIZE)
-        # unpack the response
-        response = Response.unpack(packed_response)
+        # validate that response is legal with correct structure and content
+        try:
+            # unpack the response
+            response = Response.unpack(packed_response)
+        except ValueError:
+            return GENERAL_RESPONSE_ERROR
         # check if the message receive successfully
         if response.response_code == MESSAGE_RECEIVED:
             print(f"{MESSAGE_RECEIVED}: Message Received")
@@ -400,10 +408,8 @@ class Client:
             print("Registration to System")
             # Send Registration Request to Authentication Server.
             packed_request, password = Client.registration_request()
-            try:
-                auth_server_socket.send(packed_request)
-            except socket.error:
-                print(AS_SOCKET_CRASH_ERROR_MESSAGE)
+            sending_succeed = secured_sending_packet(auth_server_socket, packed_request, AS_SOCKET_CRASH_ERROR_MESSAGE)
+            if not sending_succeed:
                 return None
             packed_response = secured_receiving_packet(auth_server_socket)
             if packed_response is None:
@@ -525,13 +531,12 @@ def main():
         # Send symmetric key request to Authentication Server.
         packed_request = client.symmetric_key_request()
         # check if socket crashes
-        try:
-            auth_server_socket.send(packed_request)
-        except socket.error:
-            print(AS_SOCKET_CRASH_ERROR_MESSAGE)
+        sending_succeed = secured_sending_packet(auth_server_socket, packed_request, AS_SOCKET_CRASH_ERROR_MESSAGE)
+        if not sending_succeed:
+            break
         packed_response = secured_receiving_packet(auth_server_socket)
         if packed_response is None:
-            return
+            break
         aes_key, ticket = client.symmetric_key_response(packed_response, packed_request)
         # Check error occur
         if aes_key is None:
@@ -546,10 +551,10 @@ def main():
             return
         # initiate message request with message server
         packed_request = client.msg_srv_connection_request(aes_key, ticket)
-        try:
-            msg_server_client.send(packed_request)
-        except socket.error:
-            print(MSG_SOCKET_CRASH_ERROR_MESSAGE)
+        # check if socket crashes
+        sending_succeed = secured_sending_packet(msg_server_client, packed_request, MSG_SOCKET_CRASH_ERROR_MESSAGE)
+        if not sending_succeed:
+            break
         # receive response
         packed_response = secured_receiving_packet(msg_server_client)
         if packed_response is None:

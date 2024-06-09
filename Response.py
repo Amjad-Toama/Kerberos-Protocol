@@ -1,17 +1,5 @@
 from UtilizationRequestResponse import *
-
-###########################################################################
-# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-# ########################## Constants Section ########################## #
-# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-###########################################################################
-
-REGISTRATION_SUCCEED = 1600     # registration succeed response code
-REGISTRATION_FAILED = 1601      # registration failed response code
-SEND_SYMMETRIC_KEY = 1603       # send symmetric key response code
-SYMMETRIC_KEY_RECEIVED = 1604   # symmetric key received response code
-MESSAGE_RECEIVED = 1605         # message received response code
-GENERAL_RESPONSE_ERROR = 1609   # general error response code
+from RequestResponseValidity import *
 
 
 class Response:
@@ -38,6 +26,8 @@ class Response:
         unpack the response from bytes to the structure of original response.
     """
     def __init__(self, version, response_code, payload):
+        if not ResponseValidity.is_valid_response(version, response_code, payload):
+            raise ValueError("Invalid request parameters")
         self.version = version
         self.response_code = response_code
         self.payload = payload
@@ -114,7 +104,8 @@ class Response:
             packed_payload = b''
             packed_payload_size = struct.pack('I', 0)
         else:
-            raise ValueError(f"Invalid response code: {self.response_code}")
+            print("Invalid response code.")
+            return None
         # concatenate response
         return packed_version + packed_response_code + packed_payload_size + packed_payload
 
@@ -132,6 +123,9 @@ class Response:
             payload_size: 4 bytes
             payload isn't constant see each condition
         '''
+        if not ResponseValidity.is_valid_packed_response_header(packed_response):
+            print("Invalid request to pack")
+            return None
         # unsigned integer (1 bytes)
         version = struct.unpack('B', packed_response[:1])[0]
         # unsigned integer (2 bytes)
@@ -143,6 +137,9 @@ class Response:
                 client_uuid: 16 bytes
             '''
             payload_size = packed_response[3:7]
+            if not ResponseValidity.is_valid_packed_registration_succeed_response(packed_response[7:]):
+                print(f"Invalid packed response: Registration Succeed Response")
+                return None
             client_uuid = packed_response[7:23].hex()
             payload = {'client_uuid': client_uuid}
         elif response_code == SEND_SYMMETRIC_KEY:
@@ -165,6 +162,9 @@ class Response:
             '''
             # unsigned integer (4 bytes)
             payload_size = struct.unpack('I', packed_response[3:7])
+            if not ResponseValidity.is_valid_packed_send_symmetric_key_response(packed_response[7:]):
+                print(f"Invalid packed response: Symmetric Key Response")
+                return None
             client_uuid = packed_response[7:23].hex()
             packed_encrypted_key = packed_response[23:103]
             packed_ticket = packed_response[103:240]
@@ -176,28 +176,40 @@ class Response:
             '''
             registration failed - no payload -> size = 0
             '''
-            payload = None
+            if not ResponseValidity.is_valid_packed_registration_failure_response(packed_response[7:]):
+                print(f"Invalid packed response: Registration Failed Response")
+                return None
+            payload = {}
             payload_size = 0
         elif response_code == GENERAL_RESPONSE_ERROR:
             '''
             general error response - no payload -> size = 0
             '''
-            payload = None
+            if not ResponseValidity.is_valid_packed_general_error_response(packed_response[7:]):
+                print(f"Invalid packed response: General Error Response")
+                return None
+            payload = {}
             payload_size = 0
         elif response_code == MESSAGE_RECEIVED:
             '''
             message received - no payload -> size = 0
             '''
-            payload = None
+            if not ResponseValidity.is_valid_packed_message_received_response(packed_response[7:]):
+                print(f"Invalid packed response: Message Received Response")
+                return None
+            payload = {}
             payload_size = 0
         elif response_code == SYMMETRIC_KEY_RECEIVED:
             '''
             symmetric key received - no payload -> size = 0
             '''
-            payload = None
+            if not ResponseValidity.is_valid_packed_symmetric_key_received_response(packed_response[7:]):
+                print(f"Invalid packed response: General Error Response")
+                return None
+            payload = {}
             payload_size = 0
         else:
-            raise ValueError(f"Invalid response code: {response_code}")
-
+            print("Invalid response code.")
+            return None
         # return response instance (initialized)
         return cls(version, response_code, payload)

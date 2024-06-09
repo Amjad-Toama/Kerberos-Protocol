@@ -41,7 +41,9 @@ def unpack_encrypted_key(packed_encrypted_key):
     encrypted_key_iv = packed_encrypted_key[:16]
     nonce = packed_encrypted_key[16:32]
     aes_key = packed_encrypted_key[32:80]
-    encrypted_key = {'encrypted_key_iv': encrypted_key_iv, 'nonce': nonce, 'aes_key': aes_key}
+    encrypted_key = {'encrypted_key_iv': encrypted_key_iv,
+                     'nonce': nonce,
+                     'aes_key': aes_key}
     return encrypted_key
 
 

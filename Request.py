@@ -1,16 +1,5 @@
 from UtilizationRequestResponse import *
-
-###########################################################################
-# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-# ########################## Constants Section ########################## #
-# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-###########################################################################
-
-REGISTRATION_REQUEST_CODE = 1024        # Registration request code
-SYMMETRIC_REQUEST_CODE = 1027           # Symmetric key request code
-SEND_TICKET_REQUEST_CODE = 1028         # Sending Symmetric Key to message server
-SEND_MESSAGE_REQUEST_CODE = 1029        # Sending Message to message server
-
+from RequestResponseValidity import *
 
 class Request:
     """
@@ -37,12 +26,17 @@ class Request:
 
     def unpack(cls, packed_request) : return request
         unpack the request from bytes to the structure of original request.
+
+
     """
     def __init__(self, client_uuid, version, request_code, payload):
-        self.client_uuid = client_uuid
-        self.version = version
-        self.request_code = request_code
-        self.payload = payload
+        if not RequestValidity.is_valid_request(client_uuid, version, request_code, payload):
+            raise ValueError("Invalid request parameters")
+        else:
+            self.client_uuid = client_uuid
+            self.version = version
+            self.request_code = request_code
+            self.payload = payload
 
     def pack(self):
         """
@@ -112,9 +106,11 @@ class Request:
             # unsigned integer (4 bytes)
             packed_payload_size = struct.pack('I', len(packed_payload))
         else:
-            raise ValueError("Invalid request code.")
+            print("Invalid request code.")
+            return None
         # concatenate packed request content
-        packed_request = packed_client_uuid + packed_version + packed_request_code + packed_payload_size + packed_payload
+        packed_request = (packed_client_uuid + packed_version + packed_request_code
+                          + packed_payload_size + packed_payload)
         return packed_request
 
     @classmethod
@@ -133,6 +129,10 @@ class Request:
             payload_size: 4 bytes
             payload isn't constant, see each condition
         '''
+        # check packed request validity
+        if not RequestValidity.is_valid_packed_request_header(packed_request):
+            print("Invalid request to pack")
+            return None
         # unpack the header of packed request
         client_uuid = packed_request[:16].hex()
         # unsigned integer (1 bytes)
@@ -147,6 +147,9 @@ class Request:
             name    : 255 bytes
             password: 255 bytes
             '''
+            # check the structure of request
+            if not RequestValidity.is_valid_packed_registration_request(packed_request[23:], payload_size):
+                return None
             name = packed_request[23:278].decode('utf-8').rstrip('\x00')
             password = packed_request[278:533].decode('utf-8').rstrip('\x00')
             payload = {'name': name, 'password': password}
@@ -155,6 +158,9 @@ class Request:
             server_uuid: 16 bytes
             nonce      : 8 bytes
             '''
+            # check the structure of request
+            if not RequestValidity.is_valid_packed_symmetric_key_request(packed_request[23:], payload_size):
+                return None
             server_uuid = packed_request[23:39].hex()
             nonce = packed_request[39:47]
             payload = {'server_uuid': server_uuid, 'nonce': nonce}
@@ -175,6 +181,9 @@ class Request:
                 encrypted_aes_key        : 48 bytes
                 encrypted_expiration_time: 32 bytes
             '''
+            # check the structure of request
+            if not RequestValidity.is_valid_packed_send_ticket_request(packed_request[23:], payload_size):
+                return None
             # slice the elements of the packed request (payload)
             packed_authenticator = packed_request[23:151]
             packed_ticket = packed_request[151:288]
@@ -188,9 +197,12 @@ class Request:
                 message_size: 4 bytes
                 message_iv  : 16 bytes
             '''
+            # check the structure of request
+            if not RequestValidity.is_valid_packed_message_request(packed_request[23:]):
+                return None
             payload = unpack_message_header(packed_request[23:])
         else:
-            raise ValueError("Invalid request code.")
-        payload_size += 1
-        # return request instance (initialized)
+            print("Invalid request code.")
+            return None
+        # return request instance (initialized) - if values are correct
         return cls(client_uuid, version, request_code, payload)

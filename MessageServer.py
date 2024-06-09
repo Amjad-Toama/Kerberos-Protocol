@@ -1,18 +1,12 @@
-import socket
 import threading
 from datetime import timedelta
-
+from fileValidity import is_valid_msg_file
 from Request import *
 from Response import *
 from Utilization import *
-from Crypto.Cipher import AES
-from Crypto.Util.Padding import unpad
-from fileValidity import *
 
-AUTHENTICATOR_LIFETIME = 1 / 12     # lifetime of authenticator : 5 minutes
 MESSAGE_SERVER_FILENAME = 'msg.info'
-
-SOCKET_ERROR_MSG = "Connection Crash"
+AUTHENTICATOR_LIFETIME = 1 / 12        # lifetime of authenticator : 5 minutes
 
 
 class MessageServer:
@@ -109,26 +103,30 @@ class MessageServer:
         :return: In valid case, return decrypted ticket, decrypted authenticator, packet response, and Response code.
         """
         print(f"{SEND_TICKET_REQUEST_CODE}: Send Symmetric Key Request")
-        # unpack the request
-        request = Request.unpack(packed_request)
+        # check if request is valid, if legal client send it: avoid case of change on its way
+        try:
+            # unpack the request
+            request = Request.unpack(packed_request)
+        except ValueError:
+            return None, None, None, GENERAL_RESPONSE_ERROR
         payload = request.payload
         # Extract the aes_key and decrypt it
         ticket = self.decrypt_ticket(payload['ticket'])
         # check if fake ticket send
         if ticket is None:
-            packed_response = Response(VERSION, GENERAL_RESPONSE_ERROR, None).pack()
+            packed_response = Response(VERSION, GENERAL_RESPONSE_ERROR, {}).pack()
             return None, None, packed_response, SYMMETRIC_KEY_RECEIVED
         # Decrypt authenticator values
         authenticator = MessageServer.decrypt_authenticator(ticket['aes_key'], payload['authenticator'])
         # Check Potential of replay attack, of fake authenticator.
-        if authenticator is None \
-                or ticket['expiration_time'] <= datetime.now() \
-                or not MessageServer.is_valid_authenticator(authenticator, ticket):
-            packed_response = Response(VERSION, GENERAL_RESPONSE_ERROR, None).pack()
-            return None, None, packed_response, SYMMETRIC_KEY_RECEIVED
+        if (authenticator is None
+                or ticket['expiration_time'] <= datetime.now()
+                or not MessageServer.is_valid_authenticator(authenticator, ticket)):
+            packed_response = Response(VERSION, GENERAL_RESPONSE_ERROR, {}).pack()
+            return None, None, packed_response, GENERAL_RESPONSE_ERROR
         # The request is legal
         else:
-            packed_response = Response(VERSION, SYMMETRIC_KEY_RECEIVED, None).pack()
+            packed_response = Response(VERSION, SYMMETRIC_KEY_RECEIVED, {}).pack()
             return ticket, authenticator, packed_response, SYMMETRIC_KEY_RECEIVED
 
     def decrypt_ticket(self, encrypted_ticket):
@@ -196,10 +194,14 @@ class MessageServer:
         :param ticket: dictionary - server ticket
         :return: boolean - true if authenticator and ticket values compatible and authenticator not expired.
         """
-        return ((authenticator['version'] == ticket['version'])
+        if not ((authenticator['version'] == ticket['version'])
                 and (authenticator['client_uuid'] == ticket['client_uuid'])
                 and (authenticator['server_uuid'] == ticket['server_uuid'])
-                and (authenticator['creation_time'] < datetime.now() + timedelta(hours=AUTHENTICATOR_LIFETIME)))
+                and (authenticator['creation_time'] + timedelta(hours=AUTHENTICATOR_LIFETIME) > datetime.now())):
+            print(f"{GENERAL_RESPONSE_ERROR}: Invalid Authenticator.")
+            return False
+        return True
+
 
     def provide_service(self, client):
         """
@@ -211,12 +213,10 @@ class MessageServer:
         packed_request = client.recv(BUFFER_SIZE)
         # Extract request details for messages request.
         ticket, authenticator, packed_response, response_code = self.symmetric_key_request(packed_request)
-        # try sending
-        try:
-            client.send(packed_response)
         # in case socket crash
-        except socket.error:
-            print(f"{SOCKET_ERROR_MSG}: {GENERAL_RESPONSE_ERROR}")
+        send_succeed = secured_sending_packet(client, packed_response)
+        if not send_succeed:
+            return
         # error occur while extracting symmetric key - message appear in early stage.
         if response_code == GENERAL_RESPONSE_ERROR:
             client.close()
@@ -240,51 +240,46 @@ class MessageServer:
         while expiration_time > datetime.now():
             # receive the message header
             packed_request = secured_receiving_packet(client)
-            # check if the connection failed.
-            if packed_request is not None:
+            # if packed request have issue
+            if packed_request is None:
+                return
+            # check if request is valid, if legal client send it: avoid case of change on its way
+            try:
                 # unpack the request content.
                 request = Request.unpack(packed_request)
-                print(f"{SEND_MESSAGE_REQUEST_CODE}: Send Message Request")
-                # Extract important details.
-                message_length = request.payload['message_size']
-                message_iv = request.payload['message_iv']
-                client_uuid = request.client_uuid
-                # Receive messages support any message length
-                encrypted_message = receive_long_encrypted_message(client, message_length)
-                # Message content decryption
-                cipher = AES.new(key, AES.MODE_CBC, message_iv)
-                msg = unpad(cipher.decrypt(encrypted_message), AES.block_size).decode()
-                # The client want to exit.
-                # Time of check expiration_time earlier than enforcement time, so message sent after
-                # expiration time will
-                # be dismissed.
-
-                # if session key expired.
-                if expiration_time <= datetime.now():
-                    packed_response = Response(VERSION, GENERAL_RESPONSE_ERROR, {}).pack()
-                    try:
-                        client.send(packed_response)
-                    except socket.error:
-                        print(f"{GENERAL_RESPONSE_ERROR}: {SOCKET_ERROR_MSG}")
-                    return
-                # if client decide to end session
-                if msg == 'exit':
-                    packed_response = Response(VERSION, MESSAGE_RECEIVED, {}).pack()
-                    try:
-                        client.send(packed_response)
-                    except socket.error:
-                        print(f"{GENERAL_RESPONSE_ERROR}: {SOCKET_ERROR_MSG}")
-                    return
-                # if message received - replay with ack and print the message
-                print(f"{client_uuid}: {msg}")
-                packed_response = Response(VERSION, MESSAGE_RECEIVED, {}).pack()
-                try:
-                    client.send(packed_response)
-                except socket.error:
-                    print(f"{GENERAL_RESPONSE_ERROR}: {SOCKET_ERROR_MSG}")
-            else:
-                # error case
+            except ValueError:
                 return
+            print(f"{SEND_MESSAGE_REQUEST_CODE}: Send Message Request")
+            # Extract important details.
+            message_length = request.payload['message_size']
+            message_iv = request.payload['message_iv']
+            client_uuid = request.client_uuid
+            # Receive messages support any message length
+            encrypted_message = receive_long_encrypted_message(client, message_length)
+            # Message content decryption
+            cipher = AES.new(key, AES.MODE_CBC, message_iv)
+            msg = unpad(cipher.decrypt(encrypted_message), AES.block_size).decode()
+            """
+            The client want to exit.
+            Time of check expiration_time earlier than enforcement time, so message sent after
+            expiration time will
+            be dismissed.
+            """
+            # if session key expired.
+            if expiration_time <= datetime.now():
+                packed_response = Response(VERSION, GENERAL_RESPONSE_ERROR, {}).pack()
+                # in case socket crash
+                secured_sending_packet(client, packed_response)
+                return
+            # if client decide to end session
+            if msg == 'exit':
+                packed_response = Response(VERSION, MESSAGE_RECEIVED, {}).pack()
+                secured_sending_packet(client, packed_response)
+                return
+            # if message received - replay with ack and print the message
+            print(f"{client_uuid}: {msg}")
+            packed_response = Response(VERSION, MESSAGE_RECEIVED, {}).pack()
+            secured_sending_packet(client, packed_response)
 
 
 def main():

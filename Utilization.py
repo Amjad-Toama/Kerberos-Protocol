@@ -47,18 +47,15 @@ Utilization module provide repeated functionality used by various modules.
         - Clean the console
 
 """
+import socket
 
 from Crypto.Cipher import AES
 from Crypto.Hash import SHA256
 from Crypto.Util.Padding import pad, unpad
 from datetime import datetime
+from Constants import BUFFER_SIZE, GENERAL_RESPONSE_ERROR, NAME_MAX_LEN, PASSWORD_MAX_LEN
 
-VERSION = 24
-# The maximum size of buffer, to transfer or receive.
-BUFFER_SIZE = 4096
-
-MAX_NAME_LEN = 255
-MAX_PASSWORD_LEN = 255
+SOCKET_ERROR_MSG = "Connection Crash"   # socket error message
 
 
 def convert_bytes_to_integer(nonce):
@@ -151,6 +148,15 @@ def secured_receiving_packet(client):
     return None
 
 
+def secured_sending_packet(sock, response, error_msg=SOCKET_ERROR_MSG):
+    try:
+        sock.send(response)
+        return True
+    except socket.error:
+        print(f"{GENERAL_RESPONSE_ERROR}: {error_msg}")
+        return False
+
+
 def receive_long_encrypted_message(client, message_length):
     """
     Handle long messages content, support any length
@@ -216,8 +222,8 @@ def legal_name(name):
         print(f"{name} must contain letters only. Try Again.\n")
         return False
     # name password is legal
-    elif len(name) > MAX_NAME_LEN:
-        print(f"{name} too long (maximum length {MAX_NAME_LEN}). Try Again.\n")
+    elif len(name) > NAME_MAX_LEN:
+        print(f"{name} too long (maximum length {NAME_MAX_LEN}). Try Again.\n")
         return False
     else:
         return True
@@ -230,8 +236,8 @@ def legal_password(password):
     :return: Return true if password is legal otherwise false
     """
     # Check legal length
-    if len(password) > MAX_PASSWORD_LEN:
-        print(f"too long (maximum length {MAX_PASSWORD_LEN}). Try Again.\n")
+    if len(password) > PASSWORD_MAX_LEN:
+        print(f"too long (maximum length {PASSWORD_MAX_LEN}). Try Again.\n")
         return False
     else:
         return True
